@@ -1,0 +1,29 @@
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f5f5f5;
+  --border: #D98EEC;
+  --text: #1a1a1a;
+  --text-muted: #666666;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warn: #D98EEC;
+  --radius: 10px;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
