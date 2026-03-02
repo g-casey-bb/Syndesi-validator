@@ -153,7 +153,14 @@ export class AppComponent {
   }
 
   /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. */
-  getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName', idLabel: string): string | null {
+  getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email', idLabel: string): string | null {
+    if (field === 'email') {
+      return row.comment && row.comment.includes('Invalid email address') ? 'Invalid email address' : null;
+    }
+    if ((field === 'firstName' || field === 'lastName') && row.comment && row.comment.includes('Too many spaces included')) {
+      const val = field === 'firstName' ? row.firstName : row.lastName;
+      if (this.hasConsecutiveSpacesInName(val)) return 'Too many spaces included';
+    }
     if (row.comment && row.comment.includes('Duplicate employee.')) {
       return 'Duplicate employee.';
     }
@@ -183,11 +190,17 @@ export class AppComponent {
   }
 
   /** True when this cell should show the confirm button (has error but not a space error). Do not show for empty required fields. */
-  showConfirmButton(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName', idLabel: string): boolean {
+  showConfirmButton(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email', idLabel: string): boolean {
+    if (field === 'email') return this.getCellTooltip(row, 'email', idLabel) != null;
     const val = field === 'employeeId' ? row.employeeId : field === 'firstName' ? row.firstName : row.lastName;
     if ((val ?? '').toString().trim() === '') return false;
     if (row.spaceErrors?.[field]) return false;
     return this.getCellTooltip(row, field, idLabel) != null;
+  }
+
+  /** True when the string (after trim) contains two or more consecutive spaces. */
+  private hasConsecutiveSpacesInName(val: string | undefined): boolean {
+    return /\s{2,}/.test(String(val ?? '').trim());
   }
 
   getSpaceTooltip(type: SpaceErrorType, fieldLabel?: string): string {
@@ -203,6 +216,12 @@ export class AppComponent {
     return sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
   }
 
+  /** Email to display in table: "Core" (case-insensitive) shows as empty. */
+  getEmailDisplay(row: ValidationRow): string {
+    const e = (row.email ?? '').toString().trim();
+    return e.toLowerCase() === 'core' ? '' : (row.email ?? '');
+  }
+
   private cellKey(rowIndex: number, field: string): string {
     return `${rowIndex}-${field}`;
   }
@@ -216,13 +235,58 @@ export class AppComponent {
     return !!(row.comment && row.comment.includes('Duplicate employee.'));
   }
 
+  /** Show delete button at row end (one per row) when row is a duplicate with unconfirmed errors. */
+  showRowDeleteButton(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
+    return this.isDuplicateEmployeeRow(row) && this.hasUnconfirmedRowErrors(row, sheet, idLabel);
+  }
+
+  /** Show confirm button at row end (one per row) when row has at least one unconfirmed error that is confirmable (not missing data, not space-related). */
+  showRowConfirmButton(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
+    if (this.isDuplicateEmployeeRow(row) || !this.hasUnconfirmedRowErrors(row, sheet, idLabel)) return false;
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
+    if (sheet.showEmailColumn) fields.push('email');
+    for (const field of fields) {
+      const tip = this.getCellTooltip(row, field, idLabel);
+      if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field) && this.isConfirmableTooltip(tip)) return true;
+    }
+    return false;
+  }
+
+  /** True when this tooltip represents an error the user can confirm (excludes missing data and space-only issues). */
+  private isConfirmableTooltip(tip: string | null): boolean {
+    if (!tip) return false;
+    if (tip.startsWith('Missing:')) return false;
+    if (tip === 'Leading or trailing spaces should be removed') return false;
+    if (tip.includes('Space at start') || tip.includes('Space at end')) return false;
+    if (tip === 'Too many spaces included') return false;
+    return true;
+  }
+
+  /** Confirm all unconfirmed errors in this row (called when user clicks the single row confirm button). */
+  confirmRow(sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean; employeeIdentifierColumnLabel?: string }, row: ValidationRow): void {
+    const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
+    if (sheet.showEmailColumn) fields.push('email');
+    for (const field of fields) {
+      if (this.showConfirmButton(row, field, idLabel)) this.confirmCell(sheet, row, field);
+    }
+    this.cdr.markForCheck();
+  }
+
   /** Title for the confirm button (e.g. "Delete duplicate?" for duplicate employee rows). */
   getConfirmButtonTitle(row: ValidationRow): string {
     if (row.comment && row.comment.includes('Duplicate employee.')) return 'Delete duplicate?';
     return 'Click to confirm';
   }
 
-  confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName'): void {
+  confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email'): void {
+    if (field === 'email') {
+      const sheetName = sheet.name;
+      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
+      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'email'));
+      this.cdr.markForCheck();
+      return;
+    }
     if (row.comment && row.comment.includes('Duplicate employee.')) {
       const rows = sheet.rows ?? [];
       const index = rows.findIndex(r => r.rowIndex === row.rowIndex);
@@ -252,9 +316,10 @@ export class AppComponent {
   }
 
   /** Row has at least one validation error that is not confirmed (so row should show as invalid). */
-  hasUnconfirmedRowErrors(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[] }, idLabel: string): boolean {
+  hasUnconfirmedRowErrors(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
     if (row.isValid) return false;
-    const fields: ('employeeId' | 'firstName' | 'lastName')[] = ['employeeId', 'firstName', 'lastName'];
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
+    if (sheet.showEmailColumn) fields.push('email');
     for (const field of fields) {
       const tip = this.getCellTooltip(row, field, idLabel);
       if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field)) return true;
@@ -277,11 +342,12 @@ export class AppComponent {
   }
 
   /** True when row had errors but every error has been confirmed (so row should show as validated). */
-  allRowErrorsConfirmed(row: ValidationRow, sheet: { name: string }, idLabel: string): boolean {
+  allRowErrorsConfirmed(row: ValidationRow, sheet: { name: string; showEmailColumn?: boolean }, idLabel: string): boolean {
     if (row.isValid) return false;
     let hasError = false;
     let allConfirmed = true;
-    const fields: ('employeeId' | 'firstName' | 'lastName')[] = ['employeeId', 'firstName', 'lastName'];
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
+    if (sheet.showEmailColumn) fields.push('email');
     for (const field of fields) {
       const tip = this.getCellTooltip(row, field, idLabel);
       if (tip) {

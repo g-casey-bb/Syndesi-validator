@@ -3,12 +3,20 @@ export interface TableRow {
   employeeId: string;
   firstName: string;
   lastName: string;
+  email?: string;
   isValid: boolean;
   comment?: string;
   /** Set when validation runs: which fields have leading/trailing space and where. */
   spaceErrors?: { employeeId?: 'leading' | 'trailing' | 'both'; firstName?: 'leading' | 'trailing' | 'both'; lastName?: 'leading' | 'trailing' | 'both' };
   /** True when the only validation failure for this row is leading/trailing space (so only those cells are highlighted). */
   onlySpaceErrors?: boolean;
+}
+
+function isValidEmail(str: string): boolean {
+  if (str == null || typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s === '') return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
 function normalize(s: string): string {
@@ -21,6 +29,11 @@ function hasLeadingOrTrailingSpace(s: string): boolean {
   const str = String(s ?? '');
   if (str.length === 0) return false;
   return /^\s/.test(str) || /\s$/.test(str);
+}
+
+/** True when the string (after trim) contains two or more consecutive spaces (e.g. "James  Thomas"). */
+function hasConsecutiveSpaces(s: string): boolean {
+  return /\s{2,}/.test(String(s ?? '').trim());
 }
 
 /** Returns which space error the string has: leading, trailing, or both. */
@@ -58,10 +71,18 @@ export function revalidateSheetRows(rows: TableRow[], idLabel: string): void {
     if (hasLeadingOrTrailingSpace(row.employeeId ?? '') || hasLeadingOrTrailingSpace(row.firstName ?? '') || hasLeadingOrTrailingSpace(row.lastName ?? '')) {
       addReason(i, 'Leading or trailing spaces should be removed');
     }
+    if (hasConsecutiveSpaces(row.firstName ?? '') || hasConsecutiveSpaces(row.lastName ?? '')) {
+      addReason(i, 'Too many spaces included');
+    }
     const firstNorm = normalize(row.firstName ?? '');
     const lastNorm = normalize(row.lastName ?? '');
     if (firstNorm && lastNorm && firstNorm === lastNorm) {
       addReason(i, 'First name and last name are the same');
+    }
+    const emailVal = (row as TableRow).email;
+    if (emailVal != null) {
+      const e = String(emailVal).trim();
+      if (e !== '' && e.toLowerCase() !== 'core' && !isValidEmail(e)) addReason(i, 'Invalid email address');
     }
   }
 

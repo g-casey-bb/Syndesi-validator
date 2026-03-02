@@ -65,6 +65,7 @@ export interface ValidationRow {
   employeeId: string;
   firstName: string;
   lastName: string;
+  email?: string;
   isValid: boolean;
   comment?: string;
   spaceErrors?: { employeeId?: SpaceErrorType; firstName?: SpaceErrorType; lastName?: SpaceErrorType };
@@ -88,6 +89,8 @@ export interface EmployeeSheetResult {
   lastNameColumnIndex?: number;
   employeeIdentifierColumnIndex?: number;
   employeeIdentifierColumnLabel?: string;
+  /** When true, the sheet has an Email column with at least one non-empty value; show it as fourth column. */
+  showEmailColumn?: boolean;
 }
 
 export interface ValidationResult {

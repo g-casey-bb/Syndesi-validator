@@ -122,6 +122,14 @@ function cellValue(row, index) {
   return String(v).trim();
 }
 
+/** True if the string looks like a valid email address (non-empty, has @ and domain part). */
+function isValidEmail(str) {
+  if (str == null || typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s === '') return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
 /** Normalize for comparison: collapse all whitespace (including Unicode) to space, strip invisible chars, and trim. */
 function normalizeForComparison(str) {
   if (str == null) return '';
@@ -266,6 +274,13 @@ function validateWorkbook(buffer) {
       'Surname',
       'Family Name'
     );
+    const emailIdx = findColumnIndex(
+      headers,
+      'Email',
+      'E-mail',
+      'Email Address',
+      'Email (optional)'
+    );
 
     const sheetReport = {
       name: sheetName,
@@ -284,7 +299,8 @@ function validateWorkbook(buffer) {
       employeeIdentifierColumnIndex: effectiveEmpIdIdx,
       employeeIdentifierColumnLabel: effectiveEmpIdIdx >= 0
         ? (effectiveEmpIdIdx === empNumberIdx ? 'Employee Number' : 'Employee ID')
-        : 'Employee ID'
+        : 'Employee ID',
+      showEmailColumn: false
     };
 
     const seen = new Map();
@@ -323,12 +339,14 @@ function validateWorkbook(buffer) {
       const empId = cellValue(row, effectiveEmpIdIdx);
       const firstName = cellValue(row, firstNameIdx);
       const lastName = cellValue(row, lastNameIdx);
-      if (empId === '' && lastName === '' && firstName.trim() !== '' && firstName.toLowerCase().includes('shift')) continue;
+      if (empId === '' && lastName === '' && firstName.trim() !== '' && (firstName.toLowerCase().includes('shift') || firstName.toLowerCase().includes('agency'))) continue;
 
+      const email = emailIdx >= 0 ? cellValue(row, emailIdx) : '';
       const excelRowNum = i + 1;
       const empIdRaw = getCellRawFromSheet(sheet, excelRowNum, effectiveEmpIdIdx);
       const firstNameRaw = getCellRawFromSheet(sheet, excelRowNum, firstNameIdx);
       const lastNameRaw = getCellRawFromSheet(sheet, excelRowNum, lastNameIdx);
+      const emailRaw = emailIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, emailIdx) : '';
 
       const hasAny = empId !== '' || firstName !== '' || lastName !== '';
       if (!hasAny) continue;
@@ -339,9 +357,11 @@ function validateWorkbook(buffer) {
         empId,
         firstName,
         lastName,
+        email: emailIdx >= 0 ? email : undefined,
         empIdRaw,
         firstNameRaw,
-        lastNameRaw
+        lastNameRaw,
+        emailRaw: emailIdx >= 0 ? emailRaw : undefined
       });
     }
 
@@ -357,7 +377,7 @@ function validateWorkbook(buffer) {
     }
 
     for (const r of rowsWithData) {
-      const { rowIndex, empId, firstName, lastName, empIdRaw, firstNameRaw, lastNameRaw } = r;
+      const { rowIndex, empId, firstName, lastName, email, empIdRaw, firstNameRaw, lastNameRaw, emailRaw } = r;
       const firstNorm = normalizeForComparison(firstName);
       const lastNorm = normalizeForComparison(lastName);
       const bothNamesFilled = firstName.trim() !== '' && lastName.trim() !== '';
@@ -435,28 +455,44 @@ function validateWorkbook(buffer) {
         });
       }
 
+      const hasConsecutiveSpacesInName = (s) => (String(s || '').trim().match(/\s{2,}/));
+      const tooManySpaces = hasConsecutiveSpacesInName(firstName) || hasConsecutiveSpacesInName(lastName);
+      if (tooManySpaces) sheetReport.valid = false;
+
       const failureReasons = [];
       if (missing.length > 0) failureReasons.push('Missing: ' + missing.join(', '));
       if (duplicateRowIndices.has(rowIndex)) failureReasons.push('Duplicate employee.');
       if (duplicateEmployeeNumberIndices.has(rowIndex)) failureReasons.push(`Duplicate ${sheetReport.employeeIdentifierColumnLabel || 'Employee Number'} for different employees`);
       if (hasSpaces) failureReasons.push('Leading or trailing spaces should be removed');
+      if (tooManySpaces) failureReasons.push('Too many spaces included');
       if (firstLastSame) failureReasons.push('First name and last name are the same');
+      const emailTrimmed = (email || '').trim();
+      const emailIsCore = emailTrimmed.toLowerCase() === 'core';
+      const emailDisplay = emailIdx >= 0 ? (emailIsCore ? '' : (emailRaw ?? '')) : '';
+      const invalidEmail = emailIdx >= 0 && emailTrimmed !== '' && !emailIsCore && !isValidEmail(emailTrimmed);
+      if (invalidEmail) {
+        failureReasons.push('Invalid email address');
+        sheetReport.valid = false;
+      }
 
       sheetReport.rows.push({
         rowIndex,
-        // Use raw values (no trim) so leading/trailing spaces are visible in the table and the cell can be highlighted red.
         employeeId: empIdRaw,
         firstName: firstNameRaw,
         lastName: lastNameRaw,
+        email: emailIdx >= 0 ? emailDisplay : undefined,
         isValid:
           missing.length === 0 &&
           !duplicateRowIndices.has(rowIndex) &&
           !duplicateEmployeeNumberIndices.has(rowIndex) &&
           !hasSpaces &&
-          !firstLastSame,
+          !tooManySpaces &&
+          !firstLastSame &&
+          !invalidEmail,
         comment: failureReasons.length > 0 ? failureReasons.join('; ') : ''
       });
     }
+    sheetReport.showEmailColumn = true;
 
     sheetReport.rows.sort((a, b) => {
       const na = (a.employeeId != null ? String(a.employeeId) : '').trim();
