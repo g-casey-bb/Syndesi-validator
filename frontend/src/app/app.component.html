@@ -76,15 +76,13 @@
           } @else {
             <div class="results-table-block">
               <div class="results-table-wrap">
-                <table class="results-table" [class.cols-4]="sheet.showEmailColumn">
+                <table class="results-table cols-4">
                   <thead>
                     <tr>
                       <th>{{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}</th>
                       <th>First Name</th>
                       <th>Last Name</th>
-                      @if (sheet.showEmailColumn) {
-                        <th>Email</th>
-                      }
+                      <th>Email</th>
                       <th class="col-actions"></th>
                     </tr>
                   </thead>
@@ -133,22 +131,20 @@
                             }
                           </div>
                         </td>
-                        @if (sheet.showEmailColumn) {
-                          <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))">
-                            <div class="cell-with-icon">
-                              <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
-                              @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
-                                <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation error">
-                                  <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
-                                    <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
-                                    <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
-                                  </svg>
-                                </span>
-                              }
-                            </div>
-                          </td>
-                        }
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))">
+                          <div class="cell-with-icon">
+                            <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
+                            @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
+                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                                <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                  <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                  <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                </svg>
+                              </span>
+                            }
+                          </div>
+                        </td>
                         <td class="col-actions">
                           @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
                             <button type="button" class="cell-delete-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">

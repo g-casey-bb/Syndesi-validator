@@ -339,7 +339,9 @@ function validateWorkbook(buffer) {
       const empId = cellValue(row, effectiveEmpIdIdx);
       const firstName = cellValue(row, firstNameIdx);
       const lastName = cellValue(row, lastNameIdx);
-      if (empId === '' && lastName === '' && firstName.trim() !== '' && (firstName.toLowerCase().includes('shift') || firstName.toLowerCase().includes('agency'))) continue;
+      // Exclude rows that only have first name containing "shift" or "agency" (case-insensitive); applies to every employee sheet (all tabs).
+      const firstLower = (firstName || '').trim().toLowerCase();
+      if (empId === '' && lastName === '' && firstLower !== '' && (firstLower.includes('shift') || firstLower.includes('agency'))) continue;
 
       const email = emailIdx >= 0 ? cellValue(row, emailIdx) : '';
       const excelRowNum = i + 1;

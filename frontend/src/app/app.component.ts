@@ -63,8 +63,9 @@ export class AppComponent {
         this.result = res;
         this.runClientValidationForAllSheets();
         const visible = this.getVisibleTabs();
-        if (visible.length > 0 && !visible.some(t => t.id === this.activeTab)) {
-          this.activeTab = visible[0].id;
+        if (visible.length > 0) {
+          const employeesSheet = this.getSheetForTab('Employees');
+          this.activeTab = (employeesSheet?.rows?.length ?? 0) > 0 ? 'Employees' : 'Agency Employees';
         }
         this.loading = false;
       },
@@ -243,8 +244,7 @@ export class AppComponent {
   /** Show confirm button at row end (one per row) when row has at least one unconfirmed error that is confirmable (not missing data, not space-related). */
   showRowConfirmButton(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
     if (this.isDuplicateEmployeeRow(row) || !this.hasUnconfirmedRowErrors(row, sheet, idLabel)) return false;
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
-    if (sheet.showEmailColumn) fields.push('email');
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
       const tip = this.getCellTooltip(row, field, idLabel);
       if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field) && this.isConfirmableTooltip(tip)) return true;
@@ -265,8 +265,7 @@ export class AppComponent {
   /** Confirm all unconfirmed errors in this row (called when user clicks the single row confirm button). */
   confirmRow(sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean; employeeIdentifierColumnLabel?: string }, row: ValidationRow): void {
     const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
-    if (sheet.showEmailColumn) fields.push('email');
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
       if (this.showConfirmButton(row, field, idLabel)) this.confirmCell(sheet, row, field);
     }
@@ -318,8 +317,7 @@ export class AppComponent {
   /** Row has at least one validation error that is not confirmed (so row should show as invalid). */
   hasUnconfirmedRowErrors(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
     if (row.isValid) return false;
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
-    if (sheet.showEmailColumn) fields.push('email');
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
       const tip = this.getCellTooltip(row, field, idLabel);
       if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field)) return true;
@@ -346,8 +344,7 @@ export class AppComponent {
     if (row.isValid) return false;
     let hasError = false;
     let allConfirmed = true;
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName'];
-    if (sheet.showEmailColumn) fields.push('email');
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
       const tip = this.getCellTooltip(row, field, idLabel);
       if (tip) {
