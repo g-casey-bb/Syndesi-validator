@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
@@ -25,7 +25,10 @@ export class AppComponent {
   /** Active tab: 'Employees' (Core Employees) or 'Agency Employees'. Default is Employees. */
   activeTab: 'Employees' | 'Agency Employees' = 'Employees';
 
-  constructor(private validator: ExcelValidatorService) {}
+  constructor(
+    private validator: ExcelValidatorService,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -59,6 +62,10 @@ export class AppComponent {
       next: (res) => {
         this.result = res;
         this.runClientValidationForAllSheets();
+        const visible = this.getVisibleTabs();
+        if (visible.length > 0 && !visible.some(t => t.id === this.activeTab)) {
+          this.activeTab = visible[0].id;
+        }
         this.loading = false;
       },
       error: (err) => {
@@ -111,6 +118,14 @@ export class AppComponent {
     return sheets.find(s => s.name === 'Agency Employees') ?? sheets[1];
   }
 
+  /** Tabs that have data to display (sheet exists and has at least one row). */
+  getVisibleTabs(): { id: 'Employees' | 'Agency Employees'; label: string }[] {
+    return this.tabs.filter(tab => {
+      const sheet = this.getSheetForTab(tab.id);
+      return sheet && (sheet.rows?.length ?? 0) > 0;
+    });
+  }
+
   setActiveTab(tabId: 'Employees' | 'Agency Employees'): void {
     this.activeTab = tabId;
   }
@@ -139,6 +154,12 @@ export class AppComponent {
 
   /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. */
   getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName', idLabel: string): string | null {
+    if (row.comment && row.comment.includes('Duplicate employee.')) {
+      return 'Duplicate employee.';
+    }
+    if ((field === 'firstName' || field === 'lastName') && row.comment && row.comment.includes('for different employees')) {
+      return null;
+    }
     const space = row.spaceErrors?.[field];
     if (space) return this.getSpaceTooltip(space, field === 'employeeId' ? idLabel : undefined);
     const val = field === 'employeeId' ? row.employeeId : field === 'firstName' ? row.firstName : row.lastName;
@@ -211,6 +232,7 @@ export class AppComponent {
         this.revalidateSheet(sheet);
         this.updateSummary();
       }
+      this.cdr.markForCheck();
       return;
     }
     const val = field === 'employeeId' ? row.employeeId : field === 'firstName' ? row.firstName : row.lastName;
@@ -218,6 +240,7 @@ export class AppComponent {
     const sheetName = sheet.name;
     if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
     this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, field));
+    this.cdr.markForCheck();
   }
 
   private removeConfirmedCellsForRow(sheetName: string, rowIndex: number): void {
@@ -237,6 +260,20 @@ export class AppComponent {
       if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field)) return true;
     }
     return false;
+  }
+
+  /** Count of rows that still need attention (have unconfirmed errors). Updates when edits are made or cells are confirmed/deleted. */
+  getEmployeesWhoNeedAttentionCount(): number {
+    if (!this.result?.employeeSheets) return 0;
+    let count = 0;
+    for (const sheet of this.result.employeeSheets) {
+      const rows = sheet.rows ?? [];
+      const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
+      for (const row of rows) {
+        if (this.hasUnconfirmedRowErrors(row, sheet, idLabel)) count++;
+      }
+    }
+    return count;
   }
 
   /** True when row had errors but every error has been confirmed (so row should show as validated). */
@@ -262,6 +299,7 @@ export class AppComponent {
     const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
     revalidateSheetRows(rows, idLabel);
     this.updateSummary();
+    this.cdr.markForCheck();
   }
 
   /** Re-run validation for the entire sheet (e.g. if needed elsewhere). */
@@ -271,6 +309,7 @@ export class AppComponent {
     const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
     revalidateSheetRows(rows, idLabel);
     this.updateSummary();
+    this.cdr.markForCheck();
   }
 
   /** Update summary counts from current sheet data. */

@@ -1,34 +1,45 @@
-<main class="container">
-  <header class="header">
-    <h1>Syndesi Upload Validator</h1>
-    <p class="subtitle">Upload an Excel file of Employees to check whether all data is valid.</p>
+<div class="app-layout">
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="app-logo">
+        <span class="app-logo-icon" aria-hidden="true">◇</span>
+        <span class="app-logo-text">Syndesi Systems</span>
+      </div>
+    </div>
   </header>
 
-  <section class="upload-section">
-    <div class="upload-area" [class.has-file]="selectedFile">
-      <input
-        id="file-input"
-        type="file"
-        accept=".xlsx,.xls"
-        (change)="onFileSelected($event)"
-      />
-      <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-    </div>
-    <div class="actions">
-      <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
-        {{ loading ? 'Validating…' : 'Validate' }}
-      </button>
-      <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
-    </div>
-  </section>
+  <main class="app-main">
+    <div class="container">
+      <header class="page-header">
+        <h1>Upload Validator</h1>
+        <p class="subtitle">Upload an Excel file of Employees to check whether all data is valid.</p>
+      </header>
 
-  @if (error) {
-    <div class="message message-error">{{ error }}</div>
-  }
+      <section class="upload-section">
+        <div class="upload-area" [class.has-file]="selectedFile">
+          <input
+            id="file-input"
+            type="file"
+            accept=".xlsx,.xls"
+            (change)="onFileSelected($event)"
+          />
+          <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
+            {{ loading ? 'Validating…' : 'Validate' }}
+          </button>
+          <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
+        </div>
+      </section>
 
-  @if (result) {
-    <section class="results">
-      <h2>Results for {{ result.fileName }}</h2>
+      @if (error) {
+        <div class="message message-error">{{ error }}</div>
+      }
+
+      @if (result) {
+        <section class="results">
+          <h2>Results for {{ result.fileName }}</h2>
 
       @if (result.warnings?.length) {
         <div class="message message-warn">
@@ -39,27 +50,14 @@
       }
 
       <div class="summary">
-        <span class="badge">Sheets processed: {{ result.sheetsProcessed }}</span>
-        <span class="badge">Rows checked: {{ result.summary.totalRows }}</span>
-        <span class="badge success">Valid: {{ result.summary.validRows }}</span>
-        <span class="badge error">Invalid: {{ result.summary.invalidRows }}</span>
-        <span class="badge warn">Duplicates: {{ result.summary.duplicates }}</span>
-        @if (result.summary.reversedNamePairs != null && result.summary.reversedNamePairs > 0) {
-          <span class="badge warn">Reversed names: {{ result.summary.reversedNamePairs }}</span>
-        }
-        @if (result.summary.sameNameDifferentId != null && result.summary.sameNameDifferentId > 0) {
-          <span class="badge warn">Same name, different ID: {{ result.summary.sameNameDifferentId }}</span>
-        }
-        @if (result.summary.leadingTrailingSpaces != null && result.summary.leadingTrailingSpaces > 0) {
-          <span class="badge warn">Leading/trailing spaces: {{ result.summary.leadingTrailingSpaces }}</span>
-        }
-        @if (result.summary.firstLastNameSame != null && result.summary.firstLastNameSame > 0) {
-          <span class="badge warn">First = Last name: {{ result.summary.firstLastNameSame }}</span>
-        }
+        <span class="badge" [class.badge-attention]="getEmployeesWhoNeedAttentionCount() > 0" [class.badge-attention-zero]="getEmployeesWhoNeedAttentionCount() === 0">
+          Employees who need attention: {{ getEmployeesWhoNeedAttentionCount() }}
+        </span>
       </div>
 
+      @if (getVisibleTabs().length > 0) {
       <div class="tabs">
-        @for (tab of tabs; track tab.id) {
+        @for (tab of getVisibleTabs(); track tab.id) {
           <button
             type="button"
             class="tab-btn"
@@ -190,6 +188,17 @@
       } @else {
         <p class="results-table-empty">No {{ activeTab }} sheet in this file.</p>
       }
+      } @else {
+        <p class="results-table-empty">No employee data to display.</p>
+      }
     </section>
   }
-</main>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="app-footer-inner">
+      Copyright© Syndesi Systems Limited 2023-2026. All Rights Reserved.
+    </div>
+  </footer>
+</div>
