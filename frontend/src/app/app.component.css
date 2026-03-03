@@ -205,8 +205,20 @@
 .summary {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 1.25rem;
+}
+
+.summary-show-link {
+  color: var(--syndesi-primary, #2563eb);
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.summary-show-link:hover {
+  text-decoration: underline;
 }
 
 .tabs {
@@ -214,6 +226,24 @@
   gap: 0.25rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--syndesi-border);
+}
+
+.tabs-top {
+  margin-top: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.tabs-top .tab-btn {
+  padding: 0.6rem 1.25rem;
+  font-size: 1rem;
+}
+
+.tabs-sub {
+  margin-bottom: 1rem;
+}
+
+.tabs-sub .tab-btn {
+  font-size: 0.875rem;
 }
 
 .tab-btn {
@@ -605,8 +635,67 @@
   display: block;
 }
 
+.cell-add-skill-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cell-add-skill-btn:hover {
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.cell-plus-svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  display: block;
+}
+
 .results-table-block .results-table-wrap {
   margin-top: 0.5rem;
+}
+
+.results-table .cell-text {
+  display: inline-block;
+  min-height: 1.5rem;
+  line-height: 1.5;
+}
+
+.results-table-training th:nth-child(1),
+.results-table-training td:nth-child(1) {
+  width: 38%;
+}
+.results-table-training th:nth-child(2),
+.results-table-training td:nth-child(2) {
+  width: 14%;
+}
+.results-table-training th:nth-child(3),
+.results-table-training td:nth-child(3) {
+  width: 14%;
+}
+.results-table-training th:nth-child(4),
+.results-table-training td:nth-child(4) {
+  width: 14%;
+}
+.results-table-training th:nth-child(5),
+.results-table-training td:nth-child(5) {
+  width: 14%;
+}
+.results-table-training th:nth-child(6),
+.results-table-training td:nth-child(6) {
+  width: 6%;
+}
+
+.results-table-training td .cell-invalid-icon {
+  margin-left: 0.25rem;
+  color: var(--syndesi-attention, #b45309);
 }
 
 .results-table-empty {

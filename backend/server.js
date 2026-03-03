@@ -16,6 +16,21 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+/** Load skill name mapping: input skill name -> display name. Keys normalized to lowercase for lookup. Returns display options for dropdown (unique, sorted). */
+function loadTrainingSkillMap() {
+  const p = path.join(__dirname, '..', 'training.json');
+  if (!fs.existsSync(p)) return { map: {}, displayByKey: {}, skillOptions: [] };
+  const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+  const displayByKey = typeof raw === 'object' && raw !== null ? raw : {};
+  const map = {};
+  for (const [key, display] of Object.entries(displayByKey)) {
+    const k = String(key).trim().toLowerCase();
+    map[k] = display == null ? key : String(display).trim();
+  }
+  const skillOptions = [...new Set(Object.values(map))].filter(Boolean).sort();
+  return { map, displayByKey, skillOptions };
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -395,7 +410,6 @@ function validateWorkbook(buffer) {
 
   if (employeeSheetNames.length === 0) {
     results.warnings.push('No sheet with "Employees" or "Instructor" in the title was found.');
-    return results;
   }
 
   for (const sheetName of employeeSheetNames) {
@@ -830,6 +844,147 @@ function validateWorkbook(buffer) {
     results.sheetsProcessed++;
   }
 
+  // Training sheet: parse and validate
+  const trainingSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('training'));
+  const { map: skillMap, skillOptions } = loadTrainingSkillMap();
+  const EVENT_TYPES = ['Basic', 'Refresher', 'Observation'];
+  const RESULT_OPTIONS = ['Pass', 'Fail'];
+  results.trainingSheet = null;
+  if (trainingSheetName) {
+    const trainingSheet = workbook.Sheets[trainingSheetName];
+    const trainingData = XLSX.utils.sheet_to_json(trainingSheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+    if (trainingData && trainingData.length >= 2) {
+      const headers = trainingData[0].map(h => (h != null ? String(h) : ''));
+      const skillIdx = findColumnIndexStartsWith(headers, 'skill');
+      const eventTypeIdx = findColumnIndex(headers, 'Event Type', 'EventType', 'Event type');
+      const testDateIdx = findColumnIndex(headers, 'Test Date', 'TestDate', 'Test date');
+      const resultIdx = findColumnIndex(headers, 'Result');
+      const empNumIdxTraining = findEmployeeNumberIndex(headers);
+      const empIdIdxTraining = findEmployeeIdIndex(headers);
+      const empIdIdx = empNumIdxTraining >= 0 ? empNumIdxTraining : empIdIdxTraining;
+      const trainingRows = [];
+      let trainingValid = true;
+      for (let i = 1; i < trainingData.length; i++) {
+        const row = trainingData[i];
+        const rowIndex = i + 1;
+        const skillRaw = skillIdx >= 0 ? cellValue(row, skillIdx) : '';
+        const eventTypeRaw = eventTypeIdx >= 0 ? cellValue(row, eventTypeIdx) : '';
+        const testDateRaw = testDateIdx >= 0 ? (row[testDateIdx] != null ? String(row[testDateIdx]) : '') : '';
+        const resultRaw = resultIdx >= 0 ? cellValue(row, resultIdx) : '';
+        const employeeIdRaw = empIdIdx >= 0 ? cellValue(row, empIdIdx) : '';
+        const hasAnyData = skillRaw || eventTypeRaw || testDateRaw.trim() || resultRaw || employeeIdRaw;
+        if (!hasAnyData) continue;
+        const missing = [];
+        if (!skillRaw) missing.push('Skill');
+        if (!eventTypeRaw) missing.push('Event Type');
+        if (!testDateRaw.trim()) missing.push('Test Date');
+        if (!employeeIdRaw) missing.push('Employee ID');
+        let skillDisplay = skillRaw;
+        let skillError = null;
+        if (skillRaw) {
+          const key = skillRaw.trim().toLowerCase();
+          if (skillMap[key] !== undefined) {
+            skillDisplay = skillMap[key];
+          } else {
+            skillError = 'Skill not recognised';
+            trainingValid = false;
+          }
+        }
+        const eventTypeNorm = eventTypeRaw.trim();
+        const eventTypeConversion = eventTypeNorm.toLowerCase() === 'conversion';
+        const eventTypeMatch = EVENT_TYPES.find(t => t.toLowerCase() === eventTypeNorm.toLowerCase()) || (eventTypeConversion ? 'Basic' : null);
+        const eventTypeDisplay = eventTypeMatch || eventTypeNorm;
+        const eventTypeError = eventTypeRaw && !eventTypeMatch ? 'Not a valid training type' : null;
+        if (eventTypeError) trainingValid = false;
+        const resultNorm = resultRaw.trim();
+        let resultDisplay;
+        let resultError = null;
+        let resultDefaulted = false;
+        if (!resultRaw || !resultNorm) {
+          resultDisplay = 'Pass';
+          resultDefaulted = true;
+        } else {
+          const resultMatch = RESULT_OPTIONS.find(r => r.toLowerCase() === resultNorm.toLowerCase());
+          resultDisplay = resultMatch || resultNorm;
+          resultError = !resultMatch ? 'Result must be Pass or Fail' : null;
+          if (resultError) trainingValid = false;
+        }
+        let testDateValid = true;
+        let testDateDisplay = testDateRaw.trim();
+        if (testDateRaw.trim()) {
+          const v = row[testDateIdx];
+          let isoDate = '';
+          if (v instanceof Date) {
+            isoDate = v.toISOString().slice(0, 10);
+          } else if (typeof v === 'number' && v > 0) {
+            const excelEpoch = new Date(1899, 11, 30);
+            const jsDate = new Date(excelEpoch.getTime() + v * 86400 * 1000);
+            if (!Number.isNaN(jsDate.getTime())) isoDate = jsDate.toISOString().slice(0, 10);
+            else testDateValid = false;
+          } else {
+            const parsed = Date.parse(testDateRaw);
+            if (Number.isNaN(parsed)) testDateValid = false;
+            else isoDate = new Date(parsed).toISOString().slice(0, 10);
+          }
+          if (isoDate) {
+            const [y, m, d] = isoDate.split('-');
+            testDateDisplay = `${d}/${m}/${y}`;
+          }
+        }
+        if (!testDateValid && testDateRaw.trim()) trainingValid = false;
+        const testDateError = testDateRaw.trim() && !testDateValid ? 'Test Date must be a valid date' : null;
+        const rowValid = missing.length === 0 && !skillError && !eventTypeError && !testDateError && !resultError;
+        if (!rowValid) trainingValid = false;
+        trainingRows.push({
+          rowIndex,
+          skill: skillDisplay,
+          skillRaw: skillRaw,
+          eventType: eventTypeDisplay,
+          eventTypeRaw: eventTypeRaw,
+          testDate: testDateDisplay,
+          testDateRaw: testDateRaw,
+          result: resultDisplay,
+          resultRaw: resultRaw,
+          resultDefaulted: resultDefaulted,
+          employeeId: employeeIdRaw,
+          isValid: rowValid,
+          comment: missing.length ? 'Missing: ' + missing.join(', ') : [skillError, eventTypeError, testDateError, resultError].filter(Boolean).join('; ') || undefined,
+          missingFields: missing.length ? missing : undefined,
+          skillError: skillError || undefined,
+          eventTypeError: eventTypeError || undefined,
+          testDateError: testDateError || undefined,
+          resultError: resultError || undefined,
+          duplicateTraining: false
+        });
+      }
+      const trainingKey = (r) => `${(r.skill || '').trim().toLowerCase()}\t${(r.testDate || '').trim()}\t${(r.employeeId || '').trim().toLowerCase()}`;
+      const keyToIndices = new Map();
+      for (let idx = 0; idx < trainingRows.length; idx++) {
+        const k = trainingKey(trainingRows[idx]);
+        if (!keyToIndices.has(k)) keyToIndices.set(k, []);
+        keyToIndices.get(k).push(idx);
+      }
+      for (const indices of keyToIndices.values()) {
+        if (indices.length > 1) {
+          for (const idx of indices) {
+            trainingRows[idx].duplicateTraining = true;
+            trainingRows[idx].isValid = false;
+            trainingValid = false;
+          }
+        }
+      }
+      results.trainingSheet = {
+        name: 'Training',
+        rowCount: trainingRows.length,
+        valid: trainingValid,
+        rows: trainingRows,
+        skillOptions
+      };
+    } else {
+      results.trainingSheet = { name: 'Training', rowCount: 0, valid: true, rows: [], skillOptions: [] };
+    }
+  }
+
   // Merge Instructor rows with Core/Agency: same (empId, firstName, lastName) → one row with Employee = "Instructor"
   const employeeSheets = results.employeeSheets.filter(s => !s.name.toLowerCase().includes('instructor'));
   const instructorSheets = results.employeeSheets.filter(s => s.name.toLowerCase().includes('instructor'));
@@ -984,6 +1139,32 @@ app.post('/api/correct-export', upload.single('file'), (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+/** Add a new skill to training.json so it becomes a valid selection. Body: { skill: string }. */
+app.post('/api/training/skill', (req, res) => {
+  const skill = req.body?.skill != null ? String(req.body.skill).trim() : '';
+  if (!skill) {
+    return res.status(400).json({ error: 'Skill name is required', skillOptions: loadTrainingSkillMap().skillOptions });
+  }
+  const p = path.join(__dirname, '..', 'training.json');
+  if (!fs.existsSync(p)) {
+    return res.status(500).json({ error: 'training.json not found', skillOptions: [] });
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const obj = typeof raw === 'object' && raw !== null ? raw : {};
+    obj[skill] = skill;
+    fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8');
+    const { skillOptions } = loadTrainingSkillMap();
+    res.json({ success: true, skillOptions });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Failed to add skill',
+      message: err.message,
+      skillOptions: loadTrainingSkillMap().skillOptions
+    });
+  }
 });
 
 app.listen(PORT, () => {

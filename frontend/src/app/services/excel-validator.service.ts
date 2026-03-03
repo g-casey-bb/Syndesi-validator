@@ -15,6 +15,11 @@ export class ExcelValidatorService {
     return this.http.post<ValidationResult>(`${API_URL}/validate`, formData);
   }
 
+  /** Add a new skill to training.json; returns updated skillOptions. */
+  addTrainingSkill(skill: string): Observable<{ success: boolean; skillOptions: string[] }> {
+    return this.http.post<{ success: boolean; skillOptions: string[] }>(`${API_URL}/training/skill`, { skill });
+  }
+
   /** Request corrected Excel with First/Last name swapped for the given rows per sheet. */
   correctAndExport(file: File, corrections: { sheetName: string; rowIndices: number[] }[]): Observable<Blob> {
     const formData = new FormData();

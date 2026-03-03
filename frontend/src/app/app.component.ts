@@ -2,7 +2,7 @@ import { Component, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
-import { ValidationResult, EmployeeSheetResult, ValidationRow, SpaceErrorType } from './models/validation-result';
+import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
 
 @Component({
   selector: 'app-root',
@@ -25,8 +25,27 @@ export class AppComponent {
   /** Per-sheet sort: column key and direction. */
   sortState: Record<string, { key: string; dir: 'asc' | 'desc' }> = {};
 
-  /** Active tab: 'Employees' (Core Employees), 'Agency Employees', or 'Instructor'. Default is Employees. */
+  /** Sort state key for the Training table (single sheet). */
+  readonly trainingSortKey = 'training';
+
+  /** When true, Employees table shows only rows that need attention. */
+  employeesShowOnlyInvalid = false;
+
+  /** When true, Training table shows only invalid rows. */
+  trainingShowOnlyInvalid = false;
+
+  /** Top-level tab: Employees, Training, or Assets. Always visible. */
+  topLevelTab: 'Employees' | 'Training' | 'Assets' = 'Employees';
+
+  /** Active employee sub-tab: 'Employees' (Core), 'Agency Employees', or 'Instructor'. Used when topLevelTab is Employees. */
   activeTab: 'Employees' | 'Agency Employees' | 'Instructor' = 'Employees';
+
+  /** Top-level tabs (always three). */
+  readonly topLevelTabs: { id: 'Employees' | 'Training' | 'Assets'; label: string }[] = [
+    { id: 'Employees', label: 'Employees' },
+    { id: 'Training', label: 'Training' },
+    { id: 'Assets', label: 'Assets' },
+  ];
 
   constructor(
     private validator: ExcelValidatorService,
@@ -60,6 +79,8 @@ export class AppComponent {
     this.result = null;
     this.rowsToReverse = {};
     this.confirmedCells = {};
+    this.employeesShowOnlyInvalid = false;
+    this.trainingShowOnlyInvalid = false;
 
     this.validator.validateFile(this.selectedFile).subscribe({
       next: (res) => {
@@ -90,6 +111,7 @@ export class AppComponent {
     this.selectedFile = null;
     this.rowsToReverse = {};
     this.confirmedCells = {};
+    this.topLevelTab = 'Employees';
     this.activeTab = 'Employees';
     const input = document.getElementById('file-input') as HTMLInputElement;
     if (input) input.value = '';
@@ -112,15 +134,16 @@ export class AppComponent {
       .map(([sheetName, set]) => ({ sheetName, rowIndices: Array.from(set) }));
   }
 
-  /** Tab IDs: Instructor first (when present), then Employees, then Agency Employees. Show Instructor tab whenever the sheet exists (even with 0 rows). */
+  /** Tab IDs: Instructors first (when present), then Employees, then Agency Employees. Show Instructors when sheet exists; Agency Employees always; Employees when sheet has rows. */
   get tabs(): { id: 'Employees' | 'Agency Employees' | 'Instructor'; label: string }[] {
     const order: { id: 'Employees' | 'Agency Employees' | 'Instructor'; label: string }[] = [
-      { id: 'Instructor', label: 'Instructor' },
+      { id: 'Instructor', label: 'Instructors' },
       { id: 'Employees', label: 'Employees' },
       { id: 'Agency Employees', label: 'Agency Employees' },
     ];
     return order.filter(tab => {
       const sheet = this.getSheetForTab(tab.id);
+      if (tab.id === 'Agency Employees') return true;
       if (tab.id === 'Instructor') return !!sheet;
       return sheet && (sheet.rows?.length ?? 0) > 0;
     });
@@ -141,6 +164,252 @@ export class AppComponent {
 
   setActiveTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): void {
     this.activeTab = tabId;
+  }
+
+  setTopLevelTab(tabId: 'Employees' | 'Training' | 'Assets'): void {
+    this.topLevelTab = tabId;
+  }
+
+  readonly trainingEventTypes = ['Basic', 'Refresher', 'Observation'] as const;
+  readonly trainingResultOptions = ['Pass', 'Fail'] as const;
+
+  private updateTrainingRowValidity(row: TrainingRow): void {
+    const missing: string[] = [];
+    if (!(row.skill ?? '').trim()) missing.push('Skill');
+    if (!(row.eventType ?? '').trim()) missing.push('Event Type');
+    if (!(row.testDate ?? '').trim()) missing.push('Test Date');
+    if (!(row.result ?? '').trim()) missing.push('Result');
+    if (!(row.employeeId ?? '').trim()) missing.push('Employee ID');
+    row.missingFields = missing.length ? missing : undefined;
+    row.isValid = missing.length === 0 && !row.skillError && !row.eventTypeError && !row.testDateError && !row.resultError;
+    row.comment = missing.length ? 'Missing: ' + missing.join(', ') : [row.skillError, row.eventTypeError, row.testDateError, row.resultError].filter(Boolean).join('; ') || undefined;
+  }
+
+  onTrainingSkillChange(row: TrainingRow, value: string, skillOptions: string[]): void {
+    row.skill = value.trim();
+    const valid = skillOptions.includes(row.skill);
+    row.skillError = row.skill && !valid ? 'Skill not recognised' : undefined;
+    this.updateTrainingRowValidity(row);
+    this.recomputeTrainingDuplicates();
+    this.cdr.markForCheck();
+  }
+
+  onTrainingEventTypeChange(row: TrainingRow, value: string): void {
+    row.eventType = value;
+    const valid = this.trainingEventTypes.includes(value as typeof this.trainingEventTypes[number]);
+    row.eventTypeError = (row.eventType && !valid) ? 'Not a valid training type' : undefined;
+    this.updateTrainingRowValidity(row);
+    this.cdr.markForCheck();
+  }
+
+  onTrainingTestDateChange(row: TrainingRow, value: string): void {
+    const trimmed = (value ?? '').trim();
+    row.testDate = trimmed;
+    if (!trimmed) {
+      row.testDateError = undefined;
+      this.updateTrainingRowValidity(row);
+      this.recomputeTrainingDuplicates();
+      this.cdr.markForCheck();
+      return;
+    }
+    const ddmmyy = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    const ymd = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    let valid = false;
+    let d = 0, m = 0, y = 0;
+    if (ddmmyy) {
+      d = parseInt(ddmmyy[1], 10);
+      m = parseInt(ddmmyy[2], 10) - 1;
+      y = parseInt(ddmmyy[3], 10);
+    } else if (ymd) {
+      y = parseInt(ymd[1], 10);
+      m = parseInt(ymd[2], 10) - 1;
+      d = parseInt(ymd[3], 10);
+    }
+    if (ddmmyy || ymd) {
+      const date = new Date(y, m, d);
+      if (!Number.isNaN(date.getTime()) && date.getDate() === d && date.getMonth() === m && date.getFullYear() === y) {
+        valid = true;
+        row.testDate = `${String(d).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y}`;
+      }
+    }
+    if (!valid) row.testDateError = 'Test Date must be a valid date';
+    else row.testDateError = undefined;
+    this.updateTrainingRowValidity(row);
+    this.recomputeTrainingDuplicates();
+    this.cdr.markForCheck();
+  }
+
+  onTrainingResultChange(row: TrainingRow, value: string): void {
+    row.result = value;
+    row.resultDefaulted = false;
+    const valid = this.trainingResultOptions.includes(value as typeof this.trainingResultOptions[number]);
+    row.resultError = (row.result && !valid) ? 'Result must be Pass or Fail' : undefined;
+    this.updateTrainingRowValidity(row);
+    this.cdr.markForCheck();
+  }
+
+  onTrainingEmployeeIdChange(row: TrainingRow, value: string): void {
+    row.employeeId = value ?? '';
+    this.updateTrainingRowValidity(row);
+    this.recomputeTrainingDuplicates();
+    this.cdr.markForCheck();
+  }
+
+  /** Recompute duplicateTraining for all training rows (Skill + Test Date + Employee ID). */
+  recomputeTrainingDuplicates(): void {
+    const training = this.result?.trainingSheet;
+    if (!training?.rows?.length) return;
+    const key = (r: TrainingRow) => `${(r.skill || '').trim().toLowerCase()}\t${(r.testDate || '').trim()}\t${(r.employeeId || '').trim().toLowerCase()}`;
+    const keyToIndices = new Map<string, number[]>();
+    training.rows.forEach((r, idx) => {
+      const k = key(r);
+      if (!keyToIndices.has(k)) keyToIndices.set(k, []);
+      keyToIndices.get(k)!.push(idx);
+    });
+    training.rows.forEach((r, idx) => {
+      const k = key(r);
+      r.duplicateTraining = (keyToIndices.get(k)?.length ?? 0) > 1;
+      if (r.duplicateTraining) {
+        r.isValid = false;
+      } else {
+        this.updateTrainingRowValidity(r);
+      }
+    });
+    training.valid = training.rows.every(r => r.isValid);
+  }
+
+  removeTrainingRow(training: TrainingSheetResult, row: TrainingRow): void {
+    const idx = training.rows.indexOf(row);
+    if (idx >= 0) {
+      training.rows.splice(idx, 1);
+      training.rowCount = training.rows.length;
+      this.recomputeTrainingDuplicates();
+      this.cdr.markForCheck();
+    }
+  }
+
+  addTrainingSkillToFile(training: TrainingSheetResult, row: TrainingRow): void {
+    const skill = (row.skill ?? '').trim();
+    if (!skill) return;
+    this.validator.addTrainingSkill(skill).subscribe({
+      next: (res) => {
+        training.skillOptions = res.skillOptions ?? [];
+        // Revalidate all rows: any row whose skill is now in the list is valid
+        for (const r of training.rows) {
+          const s = (r.skill ?? '').trim();
+          if (s && training.skillOptions.includes(s)) {
+            r.skillError = undefined;
+            this.updateTrainingRowValidity(r);
+          }
+        }
+        this.recomputeTrainingDuplicates();
+        this.error = null;
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.error = err?.error?.message || err?.message || 'Failed to add skill';
+        this.cdr.markForCheck();
+      }
+    });
+  }
+
+  getTrainingSkillOptions(): string[] {
+    return this.result?.trainingSheet?.skillOptions ?? [];
+  }
+
+  isTrainingEventTypeInvalid(value: string): boolean {
+    if (!value) return false;
+    return !this.trainingEventTypes.includes(value as 'Basic' | 'Refresher' | 'Observation');
+  }
+
+  isTrainingResultInvalid(value: string): boolean {
+    if (!value) return false;
+    return !this.trainingResultOptions.includes(value as 'Pass' | 'Fail');
+  }
+
+  /** True when the skill value is not in training.json options (unrecognised import). */
+  isTrainingSkillUnrecognised(skill: string): boolean {
+    if (!skill) return false;
+    return !this.getTrainingSkillOptions().includes(skill);
+  }
+
+  getTrainingSheet(): TrainingSheetResult | null | undefined {
+    return this.result?.trainingSheet;
+  }
+
+  setTrainingSort(key: string): void {
+    const current = this.sortState[this.trainingSortKey];
+    const nextDir = current?.key === key && current?.dir === 'asc' ? 'desc' : 'asc';
+    this.sortState[this.trainingSortKey] = { key, dir: nextDir };
+    this.cdr.markForCheck();
+  }
+
+  getTrainingSortIcon(key: string): 'asc' | 'desc' | null {
+    const s = this.sortState[this.trainingSortKey];
+    if (!s || s.key !== key) return null;
+    return s.dir;
+  }
+
+  getSortedTrainingRows(training: TrainingSheetResult): TrainingRow[] {
+    const rows = training.rows ?? [];
+    if (rows.length === 0) return rows;
+    const s = this.sortState[this.trainingSortKey];
+    const key = s?.key ?? 'skill';
+    const dir = s?.dir ?? 'asc';
+    const mult = dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let aVal: string | number;
+      let bVal: string | number;
+      if (key === 'testDate') {
+        aVal = this.parseTrainingTestDate(a.testDate) ?? '';
+        bVal = this.parseTrainingTestDate(b.testDate) ?? '';
+        const cmp = (aVal as number) - (bVal as number);
+        return cmp * mult;
+      }
+      aVal = String((a as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      bVal = String((b as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      const cmp = (aVal as string).localeCompare(bVal as string, undefined, { numeric: true });
+      return cmp * mult;
+    });
+  }
+
+  getFilteredTrainingRows(training: TrainingSheetResult): TrainingRow[] {
+    const sorted = this.getSortedTrainingRows(training);
+    if (!this.trainingShowOnlyInvalid) return sorted;
+    return sorted.filter(row => !row.isValid);
+  }
+
+  toggleTrainingShowFilter(): void {
+    this.trainingShowOnlyInvalid = !this.trainingShowOnlyInvalid;
+    this.cdr.markForCheck();
+  }
+
+  /** Parse DD/MM/YYYY to timestamp for sorting; returns null if invalid. */
+  private parseTrainingTestDate(s: string | undefined): number | null {
+    if (!(s ?? '').trim()) return null;
+    const parts = (s ?? '').trim().split(/\D/);
+    if (parts.length !== 3) return null;
+    const d = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const y = parseInt(parts[2], 10);
+    if (Number.isNaN(d) || Number.isNaN(m) || Number.isNaN(y)) return null;
+    const date = new Date(y, m, d);
+    if (Number.isNaN(date.getTime()) || date.getDate() !== d || date.getMonth() !== m || date.getFullYear() !== y) return null;
+    return date.getTime();
+  }
+
+  getTrainingEmployeeIdTitle(row: TrainingRow): string | null {
+    const parts: string[] = [];
+    if (row.duplicateTraining) parts.push('Duplicate training');
+    if (!(row.employeeId ?? '').trim()) parts.push('Employee ID is missing');
+    return parts.length ? parts.join('. ') : null;
+  }
+
+  /** Count of training rows that are invalid (need attention). */
+  getTrainingAttentionCount(): number {
+    const training = this.result?.trainingSheet;
+    if (!training?.rows?.length) return 0;
+    return training.rows.filter(r => !r.isValid).length;
   }
 
   hasReversedNameErrors(): boolean {
@@ -274,6 +543,18 @@ export class AppComponent {
       const cmp = aVal.localeCompare(bVal, undefined, { numeric: true });
       return cmp * mult;
     });
+  }
+
+  getFilteredEmployeeRows(sheet: { name: string; rows?: ValidationRow[]; employeeIdentifierColumnLabel?: string }): ValidationRow[] {
+    const sorted = this.getSortedRows(sheet);
+    if (!this.employeesShowOnlyInvalid) return sorted;
+    const idLabel = this.getIdLabel(sheet);
+    return sorted.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel));
+  }
+
+  toggleEmployeesShowFilter(): void {
+    this.employeesShowOnlyInvalid = !this.employeesShowOnlyInvalid;
+    this.cdr.markForCheck();
   }
 
   getSortIcon(sheet: { name: string }, key: string): 'asc' | 'desc' | null {

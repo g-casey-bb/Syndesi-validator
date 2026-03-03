@@ -101,10 +101,42 @@ export interface EmployeeSheetResult {
   showEmailColumn?: boolean;
 }
 
+export interface TrainingRow {
+  rowIndex: number;
+  skill: string;
+  skillRaw: string;
+  eventType: string;
+  eventTypeRaw: string;
+  testDate: string;
+  testDateRaw: string;
+  result: string;
+  employeeId: string;
+  isValid: boolean;
+  comment?: string;
+  missingFields?: string[];
+  skillError?: string;
+  eventTypeError?: string;
+  testDateError?: string;
+  resultError?: string;
+  /** True when result was missing in the file and was defaulted to Pass. */
+  resultDefaulted?: boolean;
+  /** True when this row has the same Skill + Test Date + Employee ID as another row. */
+  duplicateTraining?: boolean;
+}
+
+export interface TrainingSheetResult {
+  name: string;
+  rowCount: number;
+  valid: boolean;
+  rows: TrainingRow[];
+  skillOptions?: string[];
+}
+
 export interface ValidationResult {
   fileName: string;
   sheetsProcessed: number;
   employeeSheets: EmployeeSheetResult[];
+  trainingSheet?: TrainingSheetResult | null;
   errors: string[];
   warnings: string[];
   summary: ValidationSummary;

@@ -33,13 +33,25 @@
         </div>
       </section>
 
+      <nav class="tabs tabs-top" aria-label="Main sections">
+        @for (tab of topLevelTabs; track tab.id) {
+          <button
+            type="button"
+            class="tab-btn"
+            [class.active]="topLevelTab === tab.id"
+            (click)="setTopLevelTab(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        }
+      </nav>
+
       @if (error) {
         <div class="message message-error">{{ error }}</div>
       }
 
-      @if (result) {
+      @if (topLevelTab === 'Employees' && result) {
         <section class="results">
-          <h2>Results for {{ result.fileName }}</h2>
 
       @if (result.warnings?.length) {
         <div class="message message-warn">
@@ -53,10 +65,13 @@
         <span class="badge" [class.badge-attention]="getEmployeesWhoNeedAttentionCount() > 0" [class.badge-attention-zero]="getEmployeesWhoNeedAttentionCount() === 0">
           Employees who need attention: {{ getEmployeesWhoNeedAttentionCount() }}
         </span>
+        @if (getEmployeesWhoNeedAttentionCount() > 0 || employeesShowOnlyInvalid) {
+          <a class="summary-show-link" (click)="toggleEmployeesShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleEmployeesShowFilter()" (keydown.space)="toggleEmployeesShowFilter(); $event.preventDefault()">{{ employeesShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+        }
       </div>
 
       @if (getVisibleTabs().length > 0) {
-      <div class="tabs">
+      <div class="tabs tabs-sub">
         @for (tab of getVisibleTabs(); track tab.id) {
           <button
             type="button"
@@ -115,7 +130,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    @for (row of getSortedRows(sheet); track row.rowIndex) {
+                    @for (row of getFilteredEmployeeRows(sheet); track row.rowIndex) {
                       <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
                         <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
                           <div class="cell-with-icon">
@@ -236,7 +251,164 @@
         <p class="results-table-empty">No employee data to display.</p>
       }
     </section>
-  }
+      }
+
+      @if (topLevelTab === 'Employees' && !result) {
+        <section class="results results-placeholder">
+          <h2>Employees</h2>
+          <p class="results-table-empty">Upload and validate an Excel file to see employee data.</p>
+        </section>
+      }
+
+      @if (topLevelTab === 'Training') {
+        <section class="results" [class.results-placeholder]="!getTrainingSheet()?.rows?.length">
+          <h2>Training</h2>
+          @if (getTrainingSheet(); as training) {
+            @if (training.rows?.length) {
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getTrainingAttentionCount() > 0" [class.badge-attention-zero]="getTrainingAttentionCount() === 0">
+                  Training that needs attention: {{ getTrainingAttentionCount() }}
+                </span>
+                @if (getTrainingAttentionCount() > 0 || trainingShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleTrainingShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleTrainingShowFilter()" (keydown.space)="toggleTrainingShowFilter(); $event.preventDefault()">{{ trainingShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              <div class="results-table-block">
+                <div class="results-table-wrap">
+                  <table class="results-table results-table-training cols-6">
+                    <thead>
+                      <tr>
+                        <th class="sortable" (click)="setTrainingSort('skill')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('skill')" (keydown.space)="setTrainingSort('skill'); $event.preventDefault()">
+                          Skill
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('skill') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('skill') === 'desc'">↓</span></span>
+                        </th>
+                        <th class="sortable" (click)="setTrainingSort('eventType')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('eventType')" (keydown.space)="setTrainingSort('eventType'); $event.preventDefault()">
+                          Event Type
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('eventType') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('eventType') === 'desc'">↓</span></span>
+                        </th>
+                        <th class="sortable" (click)="setTrainingSort('testDate')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('testDate')" (keydown.space)="setTrainingSort('testDate'); $event.preventDefault()">
+                          Test Date
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('testDate') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('testDate') === 'desc'">↓</span></span>
+                        </th>
+                        <th class="sortable" (click)="setTrainingSort('result')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('result')" (keydown.space)="setTrainingSort('result'); $event.preventDefault()">
+                          Result
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('result') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('result') === 'desc'">↓</span></span>
+                        </th>
+                        <th class="sortable" (click)="setTrainingSort('employeeId')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('employeeId')" (keydown.space)="setTrainingSort('employeeId'); $event.preventDefault()">
+                          Employee ID
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('employeeId') === 'desc'">↓</span></span>
+                        </th>
+                        <th class="col-actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of getFilteredTrainingRows(training); track row.rowIndex) {
+                        <tr [class.valid-row]="row.isValid" [class.invalid-row]="!row.isValid">
+                          <td [attr.title]="row.skillError || null">
+                            <div class="cell-with-icon">
+                              <select class="cell-input cell-select" [value]="row.skill" (change)="onTrainingSkillChange(row, $any($event.target).value, getTrainingSkillOptions())">
+                                <option value="" [selected]="!row.skill">-- Select --</option>
+                                @if (row.skill && isTrainingSkillUnrecognised(row.skill)) {
+                                  <option [value]="row.skill" [selected]="true">{{ row.skill }}</option>
+                                }
+                                @for (opt of getTrainingSkillOptions(); track opt) {
+                                  <option [value]="opt" [selected]="opt === row.skill">{{ opt }}</option>
+                                }
+                              </select>
+                              @if (row.skillError) {
+                                <span class="cell-invalid-icon" [attr.title]="row.skillError" role="img" aria-label="Validation error">⚠</span>
+                              }
+                            </div>
+                          </td>
+                          <td [attr.title]="row.eventTypeError || (!(row.eventType ?? '').trim() ? 'An event type must be selected' : null)">
+                            <div class="cell-with-icon">
+                              <select class="cell-input cell-select" [value]="row.eventType" (change)="onTrainingEventTypeChange(row, $any($event.target).value)">
+                                <option value="">-- Select --</option>
+                                @if (row.eventType && isTrainingEventTypeInvalid(row.eventType)) {
+                                  <option [value]="row.eventType">{{ row.eventType }}</option>
+                                }
+                                <option value="Basic">Basic</option>
+                                <option value="Refresher">Refresher</option>
+                                <option value="Observation">Observation</option>
+                              </select>
+                              @if (row.eventTypeError || !(row.eventType ?? '').trim()) {
+                                <span class="cell-invalid-icon" [attr.title]="row.eventTypeError || 'An event type must be selected'" role="img" aria-label="Validation error">⚠</span>
+                              }
+                            </div>
+                          </td>
+                          <td [attr.title]="row.testDateError || (!(row.testDate ?? '').trim() ? 'Test date is missing' : null)">
+                            <div class="cell-with-icon">
+                              <input class="cell-input" type="text" [value]="row.testDate" (input)="row.testDate = $any($event.target).value" (blur)="onTrainingTestDateChange(row, row.testDate)" placeholder="DD/MM/YYYY" />
+                              @if (row.testDateError || !(row.testDate ?? '').trim()) {
+                                <span class="cell-invalid-icon" [attr.title]="row.testDateError || 'Test date is missing'" role="img" aria-label="Validation error">⚠</span>
+                              }
+                            </div>
+                          </td>
+                          <td [attr.title]="row.resultDefaulted ? 'Result not provided so set to Pass' : (row.resultError || (!(row.result ?? '').trim() ? 'Training result is missing' : null))">
+                            <div class="cell-with-icon">
+                              <select class="cell-input cell-select" [value]="row.result" (change)="onTrainingResultChange(row, $any($event.target).value)">
+                                <option value="">-- Select --</option>
+                                @if (row.result && isTrainingResultInvalid(row.result)) {
+                                  <option [value]="row.result">{{ row.result }}</option>
+                                }
+                                <option value="Pass">Pass</option>
+                                <option value="Fail">Fail</option>
+                              </select>
+                              @if (row.resultDefaulted) {
+                                <span class="cell-invalid-icon" title="Result not provided so set to Pass" role="img" aria-label="Info">⚠</span>
+                              } @else if (row.resultError || !(row.result ?? '').trim()) {
+                                <span class="cell-invalid-icon" [attr.title]="row.resultError || 'Training result is missing'" role="img" aria-label="Validation error">⚠</span>
+                              }
+                            </div>
+                          </td>
+                          <td [attr.title]="getTrainingEmployeeIdTitle(row)">
+                            <div class="cell-with-icon">
+                              <input class="cell-input" type="text" [value]="row.employeeId" (input)="onTrainingEmployeeIdChange(row, $any($event.target).value)" />
+                              @if (row.duplicateTraining) {
+                                <span class="cell-invalid-icon" title="Duplicate training" role="img" aria-label="Validation error">⚠</span>
+                              } @else if (!(row.employeeId ?? '').trim()) {
+                                <span class="cell-invalid-icon" title="Employee ID is missing" role="img" aria-label="Validation error">⚠</span>
+                              }
+                            </div>
+                          </td>
+                          <td class="col-actions">
+                            @if (row.skill && isTrainingSkillUnrecognised(row.skill)) {
+                              <button type="button" class="cell-add-skill-btn" title="Add new skill" (click)="addTrainingSkillToFile(training, row)" aria-label="Add new skill">
+                                <svg class="cell-plus-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/>
+                                </svg>
+                              </button>
+                            }
+                            @if (row.duplicateTraining) {
+                              <button type="button" class="cell-delete-btn" title="Remove duplicate row" (click)="removeTrainingRow(training, row)" aria-label="Remove duplicate row">
+                                <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/>
+                                </svg>
+                              </button>
+                            }
+                          </td>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            } @else {
+              <p class="results-table-empty">No training data in this file.</p>
+            }
+          } @else if (result) {
+            <p class="results-table-empty">No Training sheet found in this file.</p>
+          } @else {
+            <p class="results-table-empty">Upload and validate an Excel file to see training data.</p>
+          }
+        </section>
+      }
+
+      @if (topLevelTab === 'Assets') {
+        <section class="results results-placeholder">
+          <h2>Assets</h2>
+          <p class="results-table-empty">Assets content will appear here.</p>
+        </section>
+      }
     </div>
   </main>
 
