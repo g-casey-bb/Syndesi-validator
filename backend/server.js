@@ -51,6 +51,24 @@ function findColumnIndex(headers, ...possibleNames) {
   return -1;
 }
 
+/** Find first column whose header starts with the given prefix (case-insensitive). */
+function findColumnIndexStartsWith(headers, prefix) {
+  const p = normalizeHeader(prefix);
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizeHeader(headers[i]).startsWith(p)) return i;
+  }
+  return -1;
+}
+
+/** Find first column whose normalized header contains the given substring (case-insensitive). */
+function findColumnIndexIncludes(headers, substring) {
+  const sub = normalizeHeader(substring);
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizeHeader(headers[i]).includes(sub)) return i;
+  }
+  return -1;
+}
+
 /** Find Employee Number column only if header contains "employee" or "emp" to avoid matching "No." or "#". */
 function findEmployeeNumberIndex(headers) {
   const mustContain = ['employee', 'emp'];
@@ -142,6 +160,12 @@ function normalizeForComparison(str) {
   return s;
 }
 
+/** Correct space issues for import: trim and collapse multiple consecutive spaces to one. Applied to ID, first name, last name. */
+function normalizeSpaces(str) {
+  if (str == null || typeof str !== 'string') return '';
+  return String(str).replace(/\s+/g, ' ').replace(/\u00A0/g, ' ').trim();
+}
+
 function cellValueRaw(row, index) {
   if (index < 0 || index >= row.length) return '';
   const v = row[index];
@@ -183,6 +207,167 @@ function hasLeadingOrTrailingSpace(str) {
   return /^\s/.test(s) || /\s$/.test(s);
 }
 
+/** True if row looks like a section title (merged cell row), e.g. "USERS WHO ARE INSTRUCTORS ONLY". Ignore for header detection. */
+function isSectionTitleRow(row) {
+  if (!row || !Array.isArray(row)) return true;
+  const firstCell = (row[0] != null ? String(row[0]) : '').trim();
+  if (firstCell.length > 20 && /users\s+who/i.test(firstCell)) return true;
+  const nonEmpty = row.filter(c => (c != null ? String(c).trim() : '') !== '');
+  return nonEmpty.length <= 1 && firstCell.length > 15;
+}
+
+/** True if row looks like standard instructor/employee headers (Employee ID, First Name, Last Name, Email in separate columns). Merged title rows are not header rows. Requires at least 3 distinct columns so one merged cell cannot match multiple headers. */
+function isInstructorHeaderRow(row) {
+  if (!row || !Array.isArray(row)) return false;
+  const headers = row.map(h => (h != null ? String(h) : ''));
+  const empIdIdx = findEmployeeIdIndex(headers);
+  const empNumIdx = findEmployeeNumberIndex(headers);
+  const firstNameIdx = findColumnIndex(headers, 'First Name', 'FirstName', 'Given Name');
+  const lastNameIdx = findColumnIndex(headers, 'Last Name', 'LastName', 'Surname', 'Family Name');
+  const emailIdx = findColumnIndex(headers, 'Email', 'E-mail', 'Email Address', 'Email (optional)');
+  const hasId = empIdIdx >= 0 || empNumIdx >= 0;
+  const hasFirst = firstNameIdx >= 0;
+  const hasLast = lastNameIdx >= 0;
+  const hasEmail = emailIdx >= 0;
+  const count = (hasId ? 1 : 0) + (hasFirst ? 1 : 0) + (hasLast ? 1 : 0) + (hasEmail ? 1 : 0);
+  const indices = [empIdIdx, empNumIdx, firstNameIdx, lastNameIdx, emailIdx].filter(i => i >= 0);
+  const distinctCols = new Set(indices);
+  return count >= 3 && distinctCols.size >= 3 && !isSectionTitleRow(row);
+}
+
+/**
+ * Find all instructor data blocks: each block is a header row followed by data rows.
+ * Merged cells / section title rows are ignored; only rows that look like real column headers are used.
+ * Returns [{ headerRowIndex, headers, dataRows }, ...].
+ */
+function getInstructorDataBlocks(sheet, data) {
+  if (!data || data.length < 2) return [];
+  const blocks = [];
+  for (let r = 0; r < data.length; r++) {
+    const row = data[r];
+    if (!row || !Array.isArray(row)) continue;
+    if (isSectionTitleRow(row)) continue;
+    if (!isInstructorHeaderRow(row)) continue;
+    const headers = row.map(h => (h != null ? String(h) : ''));
+    const empIdIdx = findEmployeeIdIndex(headers);
+    const empNumIdx = findEmployeeNumberIndex(headers);
+    const firstNameIdx = findColumnIndex(headers, 'First Name', 'FirstName', 'Given Name');
+    const lastNameIdx = findColumnIndex(headers, 'Last Name', 'LastName', 'Surname', 'Family Name');
+    const keyCols = [empIdIdx, empNumIdx, firstNameIdx, lastNameIdx].filter(i => i >= 0);
+    const dataRows = [];
+    for (let j = r + 1; j < data.length; j++) {
+      const next = data[j];
+      if (!next || !Array.isArray(next)) break;
+      if (isSectionTitleRow(next)) break;
+      const keyEmpty = keyCols.length === 0 || keyCols.every(c => cellValue(next, c) === '');
+      if (keyEmpty) break;
+      dataRows.push(next);
+    }
+    blocks.push({ headerRowIndex: r, headers, dataRows });
+  }
+  return blocks;
+}
+
+/** Build rowsWithData from one instructor block. Uses block headers and dataRows; excel row = headerRowIndex + 2 + i. */
+function buildRowsWithDataFromInstructorBlock(sheet, block) {
+  const { headerRowIndex, headers, dataRows } = block;
+  const numCols = headers.length;
+  const empIdIdx = findEmployeeIdIndex(headers);
+  const empNumberIdx = findEmployeeNumberIndex(headers);
+  const MIN_ID_LENGTH = 4;
+  let effectiveEmpIdIdx = empIdIdx;
+  if (empIdIdx >= 0 && empNumberIdx >= 0) {
+    const idColSequential = isColumnSequentialFromOne(dataRows, empIdIdx);
+    const numberColSequential = isColumnSequentialFromOne(dataRows, empNumberIdx);
+    const idColLongEnough = columnValuesMajorityAtLeastNChars(dataRows, empIdIdx, MIN_ID_LENGTH);
+    const numberColLongEnough = columnValuesMajorityAtLeastNChars(dataRows, empNumberIdx, MIN_ID_LENGTH);
+    if (idColSequential && !numberColSequential) effectiveEmpIdIdx = empNumberIdx;
+    else if (!idColSequential && numberColSequential) effectiveEmpIdIdx = empIdIdx;
+    else if (idColSequential) effectiveEmpIdIdx = empNumberIdx;
+    else if (numberColSequential) effectiveEmpIdIdx = empIdIdx;
+    else if (numberColLongEnough && !idColLongEnough) effectiveEmpIdIdx = empNumberIdx;
+    else if (idColLongEnough && !numberColLongEnough) effectiveEmpIdIdx = empIdIdx;
+    else effectiveEmpIdIdx = empNumberIdx;
+  } else if (empNumberIdx >= 0 && empIdIdx < 0) {
+    effectiveEmpIdIdx = empNumberIdx;
+  }
+  const firstNameIdx = findColumnIndex(headers, 'First Name', 'FirstName', 'Given Name');
+  const lastNameIdx = findColumnIndex(headers, 'Last Name', 'LastName', 'Surname', 'Family Name');
+  const emailIdx = findColumnIndex(headers, 'Email', 'E-mail', 'Email Address', 'Email (optional)');
+  const dobIdx = findColumnIndex(headers, 'DOB', 'Date of Birth', 'Birth Date', 'Date Of Birth');
+  const keyIndices = [effectiveEmpIdIdx, firstNameIdx, lastNameIdx].filter(i => i >= 0);
+  if (new Set(keyIndices).size < Math.min(3, keyIndices.length)) return [];
+  let siteIdx = findColumnIndexStartsWith(headers, 'site id');
+  if (siteIdx < 0) siteIdx = findColumnIndexStartsWith(headers, 'site');
+  if (siteIdx < 0) siteIdx = findColumnIndexIncludes(headers, 'site');
+  const shiftIdx = findColumnIndexStartsWith(headers, 'shift');
+  let instructorYnIdx = findColumnIndex(headers, 'Instructor Y/N', 'Instructor Y/N*', 'Instructor Y/N *');
+  if (instructorYnIdx < 0) instructorYnIdx = findColumnIndexStartsWith(headers, 'instructor y');
+  const columnIsSequentialFromOne = [];
+  for (let c = 0; c < numCols; c++) {
+    columnIsSequentialFromOne[c] = isColumnSequentialFromOne(dataRows, c);
+  }
+  const out = [];
+  for (let i = 0; i < dataRows.length; i++) {
+    const row = dataRows[i];
+    const excelRowNum = headerRowIndex + 2 + i;
+    const columnsWithData = [];
+    for (let c = 0; c < numCols; c++) {
+      const v = cellValue(row, c);
+      if (v !== '') columnsWithData.push(c);
+    }
+    if (columnsWithData.length === 1 && columnIsSequentialFromOne[columnsWithData[0]]) {
+      const val = cellValue(row, columnsWithData[0]);
+      const n = Number(val);
+      if (Number.isInteger(n) && n >= 1) continue;
+    }
+    if (columnsWithData.length === 1) {
+      const onlyVal = (cellValue(row, columnsWithData[0]) || '').trim();
+      if (onlyVal === 'AM Shift' || onlyVal === 'PM Shift') continue;
+    }
+    const empIdRaw = getCellRawFromSheet(sheet, excelRowNum, effectiveEmpIdIdx);
+    const firstNameRaw = getCellRawFromSheet(sheet, excelRowNum, firstNameIdx);
+    const lastNameRaw = getCellRawFromSheet(sheet, excelRowNum, lastNameIdx);
+    const empIdCorrected = normalizeSpaces(empIdRaw);
+    const firstNameCorrected = normalizeSpaces(firstNameRaw);
+    const lastNameCorrected = normalizeSpaces(lastNameRaw);
+    const firstLower = (firstNameCorrected || '').toLowerCase();
+    if (empIdCorrected === '' && lastNameCorrected === '' && firstLower !== '' && (firstLower.includes('shift') || firstLower.includes('agency'))) continue;
+    const email = emailIdx >= 0 ? cellValue(row, emailIdx) : '';
+    const emailRaw = emailIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, emailIdx) : '';
+    const dobRaw = dobIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, dobIdx) : undefined;
+    const siteRaw = siteIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, siteIdx) : undefined;
+    const shiftRaw = shiftIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, shiftIdx) : undefined;
+    const instructorYn = instructorYnIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, instructorYnIdx) : '';
+    const hasAny = empIdCorrected !== '' || firstNameCorrected !== '' || lastNameCorrected !== '';
+    if (!hasAny) continue;
+    out.push({
+      rowIndex: excelRowNum,
+      empId: empIdCorrected,
+      firstName: firstNameCorrected,
+      lastName: lastNameCorrected,
+      email: emailIdx >= 0 ? email : undefined,
+      empIdRaw: empIdCorrected,
+      firstNameRaw: firstNameCorrected,
+      lastNameRaw: lastNameCorrected,
+      emailRaw: emailIdx >= 0 ? emailRaw : undefined,
+      dobRaw: dobIdx >= 0 ? dobRaw : undefined,
+      siteRaw: siteIdx >= 0 ? siteRaw : undefined,
+      shiftRaw: shiftIdx >= 0 ? shiftRaw : undefined,
+      instructorYn: instructorYnIdx >= 0 ? instructorYn : undefined
+    });
+  }
+  return out;
+}
+
+/** Normalized key for row identity: (empId, firstName, lastName) trimmed and lowercased. */
+function rowKey(row) {
+  const a = (row.employeeId != null ? String(row.employeeId) : '').trim().toLowerCase();
+  const b = (row.firstName != null ? String(row.firstName) : '').trim().toLowerCase();
+  const c = (row.lastName != null ? String(row.lastName) : '').trim().toLowerCase();
+  return `${a}\t${b}\t${c}`;
+}
+
 function validateWorkbook(buffer) {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const results = {
@@ -203,12 +388,13 @@ function validateWorkbook(buffer) {
     }
   };
 
-  const employeeSheetNames = workbook.SheetNames.filter(name =>
-    name.toLowerCase().includes('employees')
-  );
+  const employeeSheetNames = workbook.SheetNames.filter(name => {
+    const lower = name.toLowerCase();
+    return lower.includes('employees') || lower.includes('instructor');
+  });
 
   if (employeeSheetNames.length === 0) {
-    results.warnings.push('No sheet with "Employees" in the title was found.');
+    results.warnings.push('No sheet with "Employees" or "Instructor" in the title was found.');
     return results;
   }
 
@@ -227,8 +413,14 @@ function validateWorkbook(buffer) {
       continue;
     }
 
-    const headers = data[0].map(h => (h != null ? String(h) : ''));
-    const dataRows = data.slice(1);
+    const isInstructorSheet = sheetName.toLowerCase().includes('instructor');
+    const instructorBlocks = isInstructorSheet ? getInstructorDataBlocks(sheet, data) : [];
+    const headers = (isInstructorSheet && instructorBlocks.length > 0)
+      ? instructorBlocks[0].headers.map(h => (h != null ? String(h) : ''))
+      : data[0].map(h => (h != null ? String(h) : ''));
+    const dataRows = (isInstructorSheet && instructorBlocks.length > 0)
+      ? instructorBlocks.flatMap(b => b.dataRows)
+      : data.slice(1);
 
     const empIdIdx = findEmployeeIdIndex(headers);
     const empNumberIdx = findEmployeeNumberIndex(headers);
@@ -281,6 +473,13 @@ function validateWorkbook(buffer) {
       'Email Address',
       'Email (optional)'
     );
+    const dobIdx = findColumnIndex(headers, 'DOB', 'Date of Birth', 'Birth Date', 'Date Of Birth');
+    let siteIdx = findColumnIndexStartsWith(headers, 'site id');
+    if (siteIdx < 0) siteIdx = findColumnIndexStartsWith(headers, 'site');
+    if (siteIdx < 0) siteIdx = findColumnIndexIncludes(headers, 'site');
+    const shiftIdx = findColumnIndexStartsWith(headers, 'shift');
+    let instructorYnIdx = findColumnIndex(headers, 'Instructor Y/N', 'Instructor Y/N*', 'Instructor Y/N *');
+    if (instructorYnIdx < 0) instructorYnIdx = findColumnIndexStartsWith(headers, 'instructor y');
 
     const sheetReport = {
       name: sheetName,
@@ -316,6 +515,11 @@ function validateWorkbook(buffer) {
       columnIsSequentialFromOne[c] = isColumnSequentialFromOne(dataRows, c);
     }
 
+    if (isInstructorSheet && instructorBlocks.length > 0) {
+      for (const b of instructorBlocks) {
+        rowsWithData.push(...buildRowsWithDataFromInstructorBlock(sheet, b));
+      }
+    } else {
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       const columnsWithData = [];
@@ -339,32 +543,48 @@ function validateWorkbook(buffer) {
       const empId = cellValue(row, effectiveEmpIdIdx);
       const firstName = cellValue(row, firstNameIdx);
       const lastName = cellValue(row, lastNameIdx);
-      // Exclude rows that only have first name containing "shift" or "agency" (case-insensitive); applies to every employee sheet (all tabs).
-      const firstLower = (firstName || '').trim().toLowerCase();
-      if (empId === '' && lastName === '' && firstLower !== '' && (firstLower.includes('shift') || firstLower.includes('agency'))) continue;
-
-      const email = emailIdx >= 0 ? cellValue(row, emailIdx) : '';
       const excelRowNum = i + 1;
       const empIdRaw = getCellRawFromSheet(sheet, excelRowNum, effectiveEmpIdIdx);
       const firstNameRaw = getCellRawFromSheet(sheet, excelRowNum, firstNameIdx);
       const lastNameRaw = getCellRawFromSheet(sheet, excelRowNum, lastNameIdx);
+      const empIdCorrected = normalizeSpaces(empIdRaw);
+      const firstNameCorrected = normalizeSpaces(firstNameRaw);
+      const lastNameCorrected = normalizeSpaces(lastNameRaw);
+      // Exclude rows that only have first name containing "shift" or "agency" (case-insensitive); applies to every employee sheet (all tabs).
+      const firstLower = (firstNameCorrected || '').toLowerCase();
+      if (empIdCorrected === '' && lastNameCorrected === '' && firstLower !== '' && (firstLower.includes('shift') || firstLower.includes('agency'))) continue;
+
+      const email = emailIdx >= 0 ? cellValue(row, emailIdx) : '';
       const emailRaw = emailIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, emailIdx) : '';
 
-      const hasAny = empId !== '' || firstName !== '' || lastName !== '';
+      const dobRaw = dobIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, dobIdx) : undefined;
+      const siteRaw = siteIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, siteIdx) : undefined;
+      const shiftRaw = shiftIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, shiftIdx) : undefined;
+      const instructorYn = instructorYnIdx >= 0 ? getCellRawFromSheet(sheet, excelRowNum, instructorYnIdx) : '';
+
+      const hasAny = empIdCorrected !== '' || firstNameCorrected !== '' || lastNameCorrected !== '';
       if (!hasAny) continue;
 
       sheetReport.rowCount++;
       rowsWithData.push({
         rowIndex: i + 1,
-        empId,
-        firstName,
-        lastName,
+        empId: empIdCorrected,
+        firstName: firstNameCorrected,
+        lastName: lastNameCorrected,
         email: emailIdx >= 0 ? email : undefined,
-        empIdRaw,
-        firstNameRaw,
-        lastNameRaw,
-        emailRaw: emailIdx >= 0 ? emailRaw : undefined
+        empIdRaw: empIdCorrected,
+        firstNameRaw: firstNameCorrected,
+        lastNameRaw: lastNameCorrected,
+        emailRaw: emailIdx >= 0 ? emailRaw : undefined,
+        dobRaw: dobIdx >= 0 ? dobRaw : undefined,
+        siteRaw: siteIdx >= 0 ? siteRaw : undefined,
+        shiftRaw: shiftIdx >= 0 ? shiftRaw : undefined,
+        instructorYn: instructorYnIdx >= 0 ? instructorYn : undefined
       });
+    }
+    }
+    if (isInstructorSheet && instructorBlocks.length > 0) {
+      sheetReport.rowCount = rowsWithData.length;
     }
 
     const empIdToRowIndices = new Map();
@@ -379,7 +599,7 @@ function validateWorkbook(buffer) {
     }
 
     for (const r of rowsWithData) {
-      const { rowIndex, empId, firstName, lastName, email, empIdRaw, firstNameRaw, lastNameRaw, emailRaw } = r;
+      const { rowIndex, empId, firstName, lastName, email, empIdRaw, firstNameRaw, lastNameRaw, emailRaw, dobRaw, siteRaw, shiftRaw, instructorYn } = r;
       const firstNorm = normalizeForComparison(firstName);
       const lastNorm = normalizeForComparison(lastName);
       const bothNamesFilled = firstName.trim() !== '' && lastName.trim() !== '';
@@ -477,12 +697,22 @@ function validateWorkbook(buffer) {
         sheetReport.valid = false;
       }
 
+      const employeeType = sheetName.toLowerCase().includes('instructor')
+        ? 'Instructor'
+        : (sheetName.toLowerCase().includes('agency') ? 'Agency Worker' : 'Employee');
+      const instructorYnVal = (instructorYn != null ? String(instructorYn) : '').trim().toUpperCase();
+      const finalEmployeeType = (instructorYnIdx >= 0 && instructorYnVal === 'Y') ? 'Instructor' : employeeType;
+
       sheetReport.rows.push({
         rowIndex,
         employeeId: empIdRaw,
         firstName: firstNameRaw,
         lastName: lastNameRaw,
         email: emailIdx >= 0 ? emailDisplay : undefined,
+        employeeType: finalEmployeeType,
+        dob: dobRaw !== undefined ? String(dobRaw ?? '') : undefined,
+        site: siteRaw !== undefined ? String(siteRaw ?? '') : undefined,
+        shift: shiftRaw !== undefined ? String(shiftRaw ?? '') : undefined,
         isValid:
           missing.length === 0 &&
           !duplicateRowIndices.has(rowIndex) &&
@@ -598,6 +828,54 @@ function validateWorkbook(buffer) {
 
     results.employeeSheets.push(sheetReport);
     results.sheetsProcessed++;
+  }
+
+  // Merge Instructor rows with Core/Agency: same (empId, firstName, lastName) → one row with Employee = "Instructor"
+  const employeeSheets = results.employeeSheets.filter(s => !s.name.toLowerCase().includes('instructor'));
+  const instructorSheets = results.employeeSheets.filter(s => s.name.toLowerCase().includes('instructor'));
+  if (instructorSheets.length > 0) {
+    const keyToRow = new Map();
+    for (const sheet of employeeSheets) {
+      for (const row of sheet.rows || []) {
+        const key = rowKey(row);
+        keyToRow.set(key, { sheet, row });
+      }
+    }
+    const instructorOnlyRows = [];
+    for (const sheet of instructorSheets) {
+      for (const row of sheet.rows || []) {
+        const key = rowKey(row);
+        const existing = keyToRow.get(key);
+        if (existing) {
+          existing.row.employeeType = 'Instructor';
+          if (row.email && (existing.row.email == null || String(existing.row.email).trim() === '')) existing.row.email = row.email;
+          if (row.dob && (existing.row.dob == null || String(existing.row.dob).trim() === '')) existing.row.dob = row.dob;
+          if (row.site && (existing.row.site == null || String(existing.row.site).trim() === '')) existing.row.site = row.site;
+          if (row.shift && (existing.row.shift == null || String(existing.row.shift).trim() === '')) existing.row.shift = row.shift;
+        } else {
+          instructorOnlyRows.push(row);
+        }
+      }
+    }
+    const instructorReport = {
+      name: 'Instructor',
+      headers: instructorSheets[0]?.headers || [],
+      rowCount: instructorOnlyRows.length,
+      valid: true,
+      rows: instructorOnlyRows,
+      missingFieldErrors: [],
+      duplicateErrors: [],
+      reversedNameErrors: [],
+      sameNameDifferentIdErrors: [],
+      leadingTrailingSpaceErrors: [],
+      firstLastNameSameErrors: [],
+      showEmailColumn: true,
+      employeeIdentifierColumnLabel: instructorSheets[0]?.employeeIdentifierColumnLabel || 'Employee ID'
+    };
+    results.employeeSheets = [...employeeSheets, instructorReport];
+    results.summary.totalRows = (results.employeeSheets || []).reduce((sum, s) => sum + (s.rows?.length ?? 0), 0);
+    results.summary.validRows = (results.employeeSheets || []).reduce((sum, s) => sum + (s.rows?.filter(r => r.isValid).length ?? 0), 0);
+    results.summary.invalidRows = results.summary.totalRows - results.summary.validRows;
   }
 
   return results;

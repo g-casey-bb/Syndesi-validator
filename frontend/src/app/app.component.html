@@ -76,18 +76,46 @@
           } @else {
             <div class="results-table-block">
               <div class="results-table-wrap">
-                <table class="results-table cols-4">
+                <table class="results-table cols-8">
                   <thead>
                     <tr>
-                      <th>{{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}</th>
-                      <th>First Name</th>
-                      <th>Last Name</th>
-                      <th>Email</th>
+                      <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
+                        {{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'firstName')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'firstName')" (keydown.space)="setSort(sheet, 'firstName'); $event.preventDefault()">
+                        First Name
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'lastName')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'lastName')" (keydown.space)="setSort(sheet, 'lastName'); $event.preventDefault()">
+                        Last Name
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'email')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'email')" (keydown.space)="setSort(sheet, 'email'); $event.preventDefault()">
+                        Email
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'dob')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'dob')" (keydown.space)="setSort(sheet, 'dob'); $event.preventDefault()">
+                        DOB
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'site')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'site')" (keydown.space)="setSort(sheet, 'site'); $event.preventDefault()">
+                        Site
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'shift')" (keydown.space)="setSort(sheet, 'shift'); $event.preventDefault()">
+                        Shift
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
+                      </th>
+                      <th class="sortable" (click)="setSort(sheet, 'employeeType')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeType')" (keydown.space)="setSort(sheet, 'employeeType'); $event.preventDefault()">
+                        Employee
+                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'desc'">↓</span></span>
+                      </th>
                       <th class="col-actions"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    @for (row of (sheet.rows || []); track row.rowIndex) {
+                    @for (row of getSortedRows(sheet); track row.rowIndex) {
                       <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
                         <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
                           <div class="cell-with-icon">
@@ -145,6 +173,23 @@
                             }
                           </div>
                         </td>
+                        <td>
+                          <input class="cell-input" type="text" [value]="row.dob ?? ''" (input)="row.dob = $any($event.target).value" />
+                        </td>
+                        <td>
+                          <input class="cell-input" type="text" [value]="row.site ?? ''" (input)="row.site = $any($event.target).value" />
+                        </td>
+                        <td>
+                          <input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" />
+                        </td>
+                        <td>
+                          <select class="cell-input cell-select" [value]="getEmployeeTypeValue(row, sheet)" (change)="row.employeeType = $any($event.target).value">
+                            <option value="Employee">Employee</option>
+                            <option value="Agency Worker">Agency Worker</option>
+                            <option value="Instructor">Instructor</option>
+                            <option value="Admin">Admin</option>
+                          </select>
+                        </td>
                         <td class="col-actions">
                           @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
                             <button type="button" class="cell-delete-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
@@ -152,8 +197,21 @@
                                 <path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/>
                               </svg>
                             </button>
-                          } @else if (showRowConfirmButton(row, sheet, getIdLabel(sheet))) {
+                          } @else if (showInstructorMissingIdDeleteButton(row, sheet)) {
+                            <button type="button" class="cell-delete-btn" [attr.title]="getInstructorMissingIdDeleteTitle()" (click)="removeInstructorRow(sheet, row)" aria-label="Remove row">
+                              <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/>
+                              </svg>
+                            </button>
+                          }
+                          @if (showRowConfirmButton(row, sheet, getIdLabel(sheet))) {
                             <button type="button" class="cell-confirm-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmRow(sheet, row)" aria-label="Confirm as valid">
+                              <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                              </svg>
+                            </button>
+                          } @else if (showInstructorMissingIdConfirmButton(row, sheet)) {
+                            <button type="button" class="cell-confirm-btn" [attr.title]="getInstructorMissingIdConfirmTitle()" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Confirm as valid without Employee Number">
                               <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                               </svg>

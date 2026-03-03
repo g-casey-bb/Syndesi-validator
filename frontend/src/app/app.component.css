@@ -366,6 +366,81 @@
   width: 8%;
 }
 
+.results-table.cols-5 th:nth-child(1),
+.results-table.cols-5 td:nth-child(1) {
+  width: 16%;
+}
+
+.results-table.cols-5 th:nth-child(2),
+.results-table.cols-5 td:nth-child(2) {
+  width: 20%;
+}
+
+.results-table.cols-5 th:nth-child(3),
+.results-table.cols-5 td:nth-child(3) {
+  width: 20%;
+}
+
+.results-table.cols-5 th:nth-child(4),
+.results-table.cols-5 td:nth-child(4) {
+  width: 20%;
+}
+
+.results-table.cols-5 th:nth-child(5),
+.results-table.cols-5 td:nth-child(5) {
+  width: 20%;
+}
+
+.results-table.cols-5 th:nth-child(6),
+.results-table.cols-5 td:nth-child(6) {
+  width: 4%;
+}
+
+.results-table.cols-8 th:nth-child(1),
+.results-table.cols-8 td:nth-child(1) {
+  width: 12%;
+}
+
+.results-table.cols-8 th:nth-child(2),
+.results-table.cols-8 td:nth-child(2) {
+  width: 14%;
+}
+
+.results-table.cols-8 th:nth-child(3),
+.results-table.cols-8 td:nth-child(3) {
+  width: 14%;
+}
+
+.results-table.cols-8 th:nth-child(4),
+.results-table.cols-8 td:nth-child(4) {
+  width: 14%;
+}
+
+.results-table.cols-8 th:nth-child(5),
+.results-table.cols-8 td:nth-child(5) {
+  width: 12%;
+}
+
+.results-table.cols-8 th:nth-child(6),
+.results-table.cols-8 td:nth-child(6) {
+  width: 10%;
+}
+
+.results-table.cols-8 th:nth-child(7),
+.results-table.cols-8 td:nth-child(7) {
+  width: 10%;
+}
+
+.results-table.cols-8 th:nth-child(8),
+.results-table.cols-8 td:nth-child(8) {
+  width: 10%;
+}
+
+.results-table.cols-8 th:nth-child(9),
+.results-table.cols-8 td:nth-child(9) {
+  width: 4%;
+}
+
 .results-table .col-actions {
   text-align: right;
   white-space: nowrap;
@@ -383,6 +458,28 @@
   color: var(--syndesi-text);
   font-weight: 600;
   border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.results-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.results-table thead th .sort-icons {
+  margin-left: 0.35rem;
+  font-size: 0.75em;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.results-table thead th .sort-icons .sort-arrow {
+  opacity: 0.5;
+}
+.results-table thead th .sort-icons .sort-arrow.active {
+  opacity: 1;
+  font-weight: bold;
+}
+.results-table thead th .sort-icons .sort-arrow-sep {
+  margin: 0 0.05em;
+  opacity: 0.6;
 }
 
 .results-table tbody tr {

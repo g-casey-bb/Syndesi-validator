@@ -22,8 +22,11 @@ export class AppComponent {
   /** Sheet name -> Set of 'rowIndex-field' for cells user has confirmed as valid. */
   confirmedCells: Record<string, Set<string>> = {};
 
-  /** Active tab: 'Employees' (Core Employees) or 'Agency Employees'. Default is Employees. */
-  activeTab: 'Employees' | 'Agency Employees' = 'Employees';
+  /** Per-sheet sort: column key and direction. */
+  sortState: Record<string, { key: string; dir: 'asc' | 'desc' }> = {};
+
+  /** Active tab: 'Employees' (Core Employees), 'Agency Employees', or 'Instructor'. Default is Employees. */
+  activeTab: 'Employees' | 'Agency Employees' | 'Instructor' = 'Employees';
 
   constructor(
     private validator: ExcelValidatorService,
@@ -65,7 +68,12 @@ export class AppComponent {
         const visible = this.getVisibleTabs();
         if (visible.length > 0) {
           const employeesSheet = this.getSheetForTab('Employees');
-          this.activeTab = (employeesSheet?.rows?.length ?? 0) > 0 ? 'Employees' : 'Agency Employees';
+          const agencySheet = this.getSheetForTab('Agency Employees');
+          const instructorSheet = this.getSheetForTab('Instructor');
+          this.activeTab = (employeesSheet?.rows?.length ?? 0) > 0 ? 'Employees'
+            : (agencySheet?.rows?.length ?? 0) > 0 ? 'Agency Employees'
+            : (instructorSheet?.rows?.length ?? 0) > 0 ? 'Instructor'
+            : visible[0].id;
         }
         this.loading = false;
       },
@@ -104,30 +112,34 @@ export class AppComponent {
       .map(([sheetName, set]) => ({ sheetName, rowIndices: Array.from(set) }));
   }
 
-  /** Tab IDs for Employees and Agency Employees. */
-  readonly tabs: { id: 'Employees' | 'Agency Employees'; label: string }[] = [
-    { id: 'Employees', label: 'Employees' },
-    { id: 'Agency Employees', label: 'Agency Employees' },
-  ];
-
-  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → Agency Employees. */
-  getSheetForTab(tabId: 'Employees' | 'Agency Employees'): EmployeeSheetResult | undefined {
-    const sheets = this.result?.employeeSheets ?? [];
-    if (tabId === 'Employees') {
-      return sheets.find(s => s.name === 'Core Employees') ?? sheets[0];
-    }
-    return sheets.find(s => s.name === 'Agency Employees') ?? sheets[1];
-  }
-
-  /** Tabs that have data to display (sheet exists and has at least one row). */
-  getVisibleTabs(): { id: 'Employees' | 'Agency Employees'; label: string }[] {
-    return this.tabs.filter(tab => {
+  /** Tab IDs: Instructor first (when present), then Employees, then Agency Employees. Show Instructor tab whenever the sheet exists (even with 0 rows). */
+  get tabs(): { id: 'Employees' | 'Agency Employees' | 'Instructor'; label: string }[] {
+    const order: { id: 'Employees' | 'Agency Employees' | 'Instructor'; label: string }[] = [
+      { id: 'Instructor', label: 'Instructor' },
+      { id: 'Employees', label: 'Employees' },
+      { id: 'Agency Employees', label: 'Agency Employees' },
+    ];
+    return order.filter(tab => {
       const sheet = this.getSheetForTab(tab.id);
+      if (tab.id === 'Instructor') return !!sheet;
       return sheet && (sheet.rows?.length ?? 0) > 0;
     });
   }
 
-  setActiveTab(tabId: 'Employees' | 'Agency Employees'): void {
+  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → Agency Employees, Instructor → Instructor. */
+  getSheetForTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): EmployeeSheetResult | undefined {
+    const sheets = this.result?.employeeSheets ?? [];
+    if (tabId === 'Employees') return sheets.find(s => s.name === 'Core Employees');
+    if (tabId === 'Agency Employees') return sheets.find(s => s.name === 'Agency Employees');
+    return sheets.find(s => s.name === 'Instructor');
+  }
+
+  /** Tabs that have data to display (sheet exists and has rows). Instructor tab shown whenever the sheet exists, even with 0 rows. */
+  getVisibleTabs(): { id: 'Employees' | 'Agency Employees' | 'Instructor'; label: string }[] {
+    return this.tabs;
+  }
+
+  setActiveTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): void {
     this.activeTab = tabId;
   }
 
@@ -223,6 +235,53 @@ export class AppComponent {
     return e.toLowerCase() === 'core' ? '' : (row.email ?? '');
   }
 
+  /** Value for Employee dropdown: one of Employee, Agency Worker, Instructor, Admin; defaults by sheet when unset. */
+  getEmployeeTypeValue(row: ValidationRow, sheet: { name: string }): string {
+    const options = ['Employee', 'Agency Worker', 'Instructor', 'Admin'];
+    const current = (row.employeeType ?? '').trim();
+    if (options.includes(current)) return current;
+    return sheet.name.toLowerCase().includes('agency') ? 'Agency Worker' : 'Employee';
+  }
+
+  readonly sortableKeys = ['employeeId', 'firstName', 'lastName', 'email', 'dob', 'site', 'shift', 'employeeType'] as const;
+
+  getSortKey(sheet: { name: string }): string {
+    const s = this.sortState[sheet.name];
+    return s?.key ?? 'employeeId';
+  }
+
+  getSortDir(sheet: { name: string }): 'asc' | 'desc' {
+    const s = this.sortState[sheet.name];
+    return s?.dir ?? 'asc';
+  }
+
+  setSort(sheet: { name: string }, key: string): void {
+    const current = this.sortState[sheet.name];
+    const nextDir = current?.key === key && current?.dir === 'asc' ? 'desc' : 'asc';
+    this.sortState[sheet.name] = { key, dir: nextDir };
+    this.cdr.markForCheck();
+  }
+
+  getSortedRows(sheet: { name: string; rows?: ValidationRow[] }): ValidationRow[] {
+    const rows = sheet.rows ?? [];
+    if (rows.length === 0) return rows;
+    const key = this.getSortKey(sheet);
+    const dir = this.getSortDir(sheet);
+    const mult = dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const aVal = String((a as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      const bVal = String((b as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      const cmp = aVal.localeCompare(bVal, undefined, { numeric: true });
+      return cmp * mult;
+    });
+  }
+
+  getSortIcon(sheet: { name: string }, key: string): 'asc' | 'desc' | null {
+    const s = this.sortState[sheet.name];
+    if (!s || s.key !== key) return null;
+    return s.dir;
+  }
+
   private cellKey(rowIndex: number, field: string): string {
     return `${rowIndex}-${field}`;
   }
@@ -236,9 +295,24 @@ export class AppComponent {
     return !!(row.comment && row.comment.includes('Duplicate employee.'));
   }
 
+  /** True when on Instructor tab and this row has no Employee Number (so we show remove/confirm actions). */
+  isInstructorRowWithMissingId(row: ValidationRow, sheet: { name: string }): boolean {
+    return sheet.name === 'Instructor' && ((row.employeeId ?? '').toString().trim() === '');
+  }
+
   /** Show delete button at row end (one per row) when row is a duplicate with unconfirmed errors. */
   showRowDeleteButton(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
     return this.isDuplicateEmployeeRow(row) && this.hasUnconfirmedRowErrors(row, sheet, idLabel);
+  }
+
+  /** Show delete button for Instructor rows with missing Employee Number (remove row from list). */
+  showInstructorMissingIdDeleteButton(row: ValidationRow, sheet: { name: string }): boolean {
+    return this.isInstructorRowWithMissingId(row, sheet);
+  }
+
+  /** Show confirm button for Instructor rows with missing Employee Number (confirm as valid / keep row). */
+  showInstructorMissingIdConfirmButton(row: ValidationRow, sheet: { name: string }): boolean {
+    return this.isInstructorRowWithMissingId(row, sheet) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'employeeId');
   }
 
   /** Show confirm button at row end (one per row) when row has at least one unconfirmed error that is confirmable (not missing data, not space-related). */
@@ -278,11 +352,39 @@ export class AppComponent {
     return 'Click to confirm';
   }
 
+  getInstructorMissingIdDeleteTitle(): string {
+    return 'Remove row?';
+  }
+
+  getInstructorMissingIdConfirmTitle(): string {
+    return 'Confirm as valid without Employee Number?';
+  }
+
+  /** Remove an Instructor row with missing Employee Number from the list. */
+  removeInstructorRow(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow): void {
+    const rows = sheet.rows ?? [];
+    const index = rows.findIndex(r => r.rowIndex === row.rowIndex);
+    if (index >= 0) {
+      rows.splice(index, 1);
+      this.removeConfirmedCellsForRow(sheet.name, row.rowIndex);
+      this.revalidateSheet(sheet);
+      this.updateSummary();
+    }
+    this.cdr.markForCheck();
+  }
+
   confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email'): void {
     if (field === 'email') {
       const sheetName = sheet.name;
       if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
       this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'email'));
+      this.cdr.markForCheck();
+      return;
+    }
+    if (field === 'employeeId' && sheet.name === 'Instructor' && ((row.employeeId ?? '').toString().trim() === '')) {
+      const sheetName = sheet.name;
+      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
+      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'employeeId'));
       this.cdr.markForCheck();
       return;
     }

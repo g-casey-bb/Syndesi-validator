@@ -66,6 +66,14 @@ export interface ValidationRow {
   firstName: string;
   lastName: string;
   email?: string;
+  /** Default "Employee" for Core Employees sheet, "Agency Worker" for Agency Employees sheet. */
+  employeeType?: string;
+  /** Optional; no validation. */
+  dob?: string;
+  /** Optional; no validation. */
+  site?: string;
+  /** Optional; no validation. */
+  shift?: string;
   isValid: boolean;
   comment?: string;
   spaceErrors?: { employeeId?: SpaceErrorType; firstName?: SpaceErrorType; lastName?: SpaceErrorType };
