@@ -5,6 +5,9 @@
         <span class="app-logo-icon" aria-hidden="true">◇</span>
         <span class="app-logo-text">Syndesi Systems</span>
       </div>
+      <button type="button" class="header-settings-btn" (click)="openSettings()" title="Settings" aria-label="Open settings">
+        Settings
+      </button>
     </div>
   </header>
 
@@ -14,24 +17,6 @@
         <h1>Upload Validator</h1>
         <p class="subtitle">Upload an Excel file of Employees to check whether all data is valid.</p>
       </header>
-
-      <section class="upload-section">
-        <div class="upload-area" [class.has-file]="selectedFile">
-          <input
-            id="file-input"
-            type="file"
-            accept=".xlsx,.xls"
-            (change)="onFileSelected($event)"
-          />
-          <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-        </div>
-        <div class="actions">
-          <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
-            {{ loading ? 'Validating…' : 'Validate' }}
-          </button>
-          <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
-        </div>
-      </section>
 
       <nav class="tabs tabs-top" aria-label="Main sections">
         @for (tab of topLevelTabs; track tab.id) {
@@ -50,41 +35,45 @@
         <div class="message message-error">{{ error }}</div>
       }
 
-      @if (topLevelTab === 'Employees' && result) {
-        <section class="results">
-
-      @if (result.warnings?.length) {
-        <div class="message message-warn">
-          @for (w of result.warnings; track w) {
-            <p>{{ w }}</p>
+      @if (topLevelTab === 'Employees') {
+        <div class="tabs tabs-sub">
+          @for (tab of employeesSubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="employeesSubTab === tab.id" (click)="setEmployeesSubTab(tab.id)">
+              {{ tab.label }}
+            </button>
           }
         </div>
-      }
-
-      <div class="summary">
-        <span class="badge" [class.badge-attention]="getEmployeesWhoNeedAttentionCount() > 0" [class.badge-attention-zero]="getEmployeesWhoNeedAttentionCount() === 0">
-          Employees who need attention: {{ getEmployeesWhoNeedAttentionCount() }}
-        </span>
-        @if (getEmployeesWhoNeedAttentionCount() > 0 || employeesShowOnlyInvalid) {
-          <a class="summary-show-link" (click)="toggleEmployeesShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleEmployeesShowFilter()" (keydown.space)="toggleEmployeesShowFilter(); $event.preventDefault()">{{ employeesShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+        @if (employeesSubTab === 'Import') {
+          <section class="upload-section">
+            <div class="upload-area" [class.has-file]="selectedFile">
+              <input id="file-input" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
+                {{ loading ? 'Importing…' : 'Import' }}
+              </button>
+              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
+            </div>
+          </section>
         }
-      </div>
-
-      @if (getVisibleTabs().length > 0) {
-      <div class="tabs tabs-sub">
-        @for (tab of getVisibleTabs(); track tab.id) {
-          <button
-            type="button"
-            class="tab-btn"
-            [class.active]="activeTab === tab.id"
-            (click)="setActiveTab(tab.id)"
-          >
-            {{ tab.label }}
-          </button>
-        }
-      </div>
-
-      @if (getSheetForTab(activeTab); as sheet) {
+        @if (employeesSubTab === 'Employee Data') {
+          @if (result && getEmployeeSheet(); as sheet) {
+            <section class="results">
+              @if (result.warnings?.length) {
+                <div class="message message-warn">
+                  @for (w of result.warnings; track w) { <p>{{ w }}</p> }
+                </div>
+              }
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getEmployeeAttentionCount() > 0" [class.badge-attention-zero]="getEmployeeAttentionCount() === 0">
+                  Employees who need attention: {{ getEmployeeAttentionCount() }}
+                </span>
+                @if (getEmployeeAttentionCount() > 0 || employeeTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleEmployeeTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleEmployeeTabShowFilter()" (keydown.space)="toggleEmployeeTabShowFilter(); $event.preventDefault()">{{ employeeTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              @if (sheet.rows?.length) {
         <div class="sheet-card" [class.invalid]="!sheet.valid">
           @if (sheet.message) {
             <p class="sheet-message">{{ sheet.message }}</p>
@@ -130,7 +119,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    @for (row of getFilteredEmployeeRows(sheet); track row.rowIndex) {
+                    @for (row of getFilteredEmployeeRows(sheet, employeeTabShowOnlyInvalid); track row.rowIndex) {
                       <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
                         <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
                           <div class="cell-with-icon">
@@ -158,6 +147,15 @@
                                 </svg>
                               </span>
                             }
+                            @if (isNameReversedWarning(row.rowIndex)) {
+                              <span class="cell-invalid-icon" title="First and last names may be reversed" role="img" aria-label="Names may be reversed">
+                                <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                  <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                  <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                </svg>
+                              </span>
+                            }
                           </div>
                         </td>
                         <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellTooltip(row, 'lastName', getIdLabel(sheet))">
@@ -165,6 +163,15 @@
                             <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellTooltip(row, 'lastName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'lastName')) {
                               <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'lastName', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                                <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                  <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                  <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                </svg>
+                              </span>
+                            }
+                            @if (isNameReversedWarning(row.rowIndex)) {
+                              <span class="cell-invalid-icon" title="First and last names may be reversed" role="img" aria-label="Names may be reversed">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -244,23 +251,223 @@
             </div>
           }
         </div>
-      } @else {
-        <p class="results-table-empty">No {{ activeTab }} sheet in this file.</p>
-      }
-      } @else {
-        <p class="results-table-empty">No employee data to display.</p>
-      }
-    </section>
+        <div class="employee-data-actions">
+          <button type="button" class="btn btn-secondary" (click)="checkNames()" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
+            {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
+          </button>
+          @if (nameCheckError) {
+            <span class="name-check-error">{{ nameCheckError }}</span>
+          }
+        </div>
+        @if (hasNameCheckResults) {
+          <div class="name-check-debug">
+            <div class="name-check-debug-title">Debug: probability (reversed) per name</div>
+            @for (item of getNameCheckDebugList(); track $index) {
+              <div class="name-check-debug-line">{{ item.firstName }} {{ item.lastName }} → {{ (item.probability * 100).toFixed(0) }}%</div>
+            }
+          </div>
+        }
+              } @else {
+                <p class="results-table-empty">No employee data in this sheet.</p>
+              }
+            </section>
+          } @else {
+            <section class="results results-placeholder">
+              <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see employee data.</p>
+            </section>
+          }
+        }
       }
 
-      @if (topLevelTab === 'Employees' && !result) {
-        <section class="results results-placeholder">
-          <h2>Employees</h2>
-          <p class="results-table-empty">Upload and validate an Excel file to see employee data.</p>
-        </section>
+      @if (topLevelTab === 'Agency Workers') {
+        <div class="tabs tabs-sub">
+          @for (tab of agencySubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="agencySubTab === tab.id" (click)="setAgencySubTab(tab.id)">
+              {{ tab.label }}
+            </button>
+          }
+        </div>
+        @if (agencySubTab === 'Import') {
+          <section class="upload-section">
+            <div class="upload-area" [class.has-file]="selectedFile">
+              <input id="file-input-agency" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
+                {{ loading ? 'Importing…' : 'Import' }}
+              </button>
+              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
+            </div>
+          </section>
+        }
+        @if (agencySubTab === 'Agency Worker Data') {
+          @if (result && getAgencySheet(); as sheet) {
+            <section class="results">
+              @if (result.warnings?.length) {
+                <div class="message message-warn">
+                  @for (w of result.warnings; track w) { <p>{{ w }}</p> }
+                </div>
+              }
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getAgencyAttentionCount() > 0" [class.badge-attention-zero]="getAgencyAttentionCount() === 0">
+                  Agency workers who need attention: {{ getAgencyAttentionCount() }}
+                </span>
+                @if (getAgencyAttentionCount() > 0 || agencyTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleAgencyTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleAgencyTabShowFilter()" (keydown.space)="toggleAgencyTabShowFilter(); $event.preventDefault()">{{ agencyTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              @if (sheet.rows?.length) {
+        <div class="sheet-card" [class.invalid]="getAgencyAttentionCount() > 0">
+          <div class="results-table-block">
+            <div class="results-table-wrap">
+              <table class="results-table cols-8">
+                <thead>
+                  <tr>
+                    <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
+                      {{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'firstName')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'firstName')" (keydown.space)="setSort(sheet, 'firstName'); $event.preventDefault()">First Name
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'lastName')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'lastName')" (keydown.space)="setSort(sheet, 'lastName'); $event.preventDefault()">Last Name
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'email')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'email')" (keydown.space)="setSort(sheet, 'email'); $event.preventDefault()">Email
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'dob')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'dob')" (keydown.space)="setSort(sheet, 'dob'); $event.preventDefault()">DOB
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'site')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'site')" (keydown.space)="setSort(sheet, 'site'); $event.preventDefault()">Site
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'shift')" (keydown.space)="setSort(sheet, 'shift'); $event.preventDefault()">Shift
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="sortable" (click)="setSort(sheet, 'employeeType')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeType')" (keydown.space)="setSort(sheet, 'employeeType'); $event.preventDefault()">Employee
+                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'desc'">↓</span></span>
+                    </th>
+                    <th class="col-actions"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of getFilteredEmployeeRows(sheet, agencyTabShowOnlyInvalid); track row.rowIndex) {
+                    <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
+                        <div class="cell-with-icon">
+                          <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
+                          @if (getCellTooltip(row, 'employeeId', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'employeeId')) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'employeeId', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
+                            </span>
+                          }
+                        </div>
+                      </td>
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellTooltip(row, 'firstName', getIdLabel(sheet))">
+                        <div class="cell-with-icon">
+                          <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
+                          @if (getCellTooltip(row, 'firstName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'firstName')) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'firstName', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
+                            </span>
+                          }
+                        </div>
+                      </td>
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellTooltip(row, 'lastName', getIdLabel(sheet))">
+                        <div class="cell-with-icon">
+                          <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
+                          @if (getCellTooltip(row, 'lastName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'lastName')) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'lastName', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
+                            </span>
+                          }
+                        </div>
+                      </td>
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))">
+                        <div class="cell-with-icon">
+                          <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
+                          @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
+                            </span>
+                          }
+                        </div>
+                      </td>
+                      <td><input class="cell-input" type="text" [value]="row.dob ?? ''" (input)="row.dob = $any($event.target).value" /></td>
+                      <td><input class="cell-input" type="text" [value]="row.site ?? ''" (input)="row.site = $any($event.target).value" /></td>
+                      <td><input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" /></td>
+                      <td>
+                        <select class="cell-input cell-select" [value]="getEmployeeTypeValue(row, sheet)" (change)="row.employeeType = $any($event.target).value">
+                          <option value="Employee">Employee</option>
+                          <option value="Agency Worker">Agency Worker</option>
+                          <option value="Instructor">Instructor</option>
+                          <option value="Admin">Admin</option>
+                        </select>
+                      </td>
+                      <td class="col-actions">
+                        @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
+                          <button type="button" class="cell-delete-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
+                            <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        } @else if (showInstructorMissingIdDeleteButton(row, sheet)) {
+                          <button type="button" class="cell-delete-btn" [attr.title]="getInstructorMissingIdDeleteTitle()" (click)="removeInstructorRow(sheet, row)" aria-label="Remove row">
+                            <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        }
+                        @if (showRowConfirmButton(row, sheet, getIdLabel(sheet))) {
+                          <button type="button" class="cell-confirm-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmRow(sheet, row)" aria-label="Confirm as valid">
+                            <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                          </button>
+                        } @else if (showInstructorMissingIdConfirmButton(row, sheet)) {
+                          <button type="button" class="cell-confirm-btn" [attr.title]="getInstructorMissingIdConfirmTitle()" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Confirm as valid without Employee Number">
+                            <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                          </button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+              } @else {
+                <p class="results-table-empty">No agency worker data in this sheet.</p>
+              }
+            </section>
+          } @else {
+            <section class="results results-placeholder">
+              <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see agency worker data.</p>
+            </section>
+          }
+        }
       }
 
       @if (topLevelTab === 'Training') {
+        <div class="tabs tabs-sub">
+          @for (tab of trainingSubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="trainingSubTab === tab.id" (click)="setTrainingSubTab(tab.id)">
+              {{ tab.label }}
+            </button>
+          }
+        </div>
+        @if (trainingSubTab === 'Import') {
+          <section class="upload-section">
+            <div class="upload-area" [class.has-file]="selectedFile">
+              <input id="file-input-training" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
+                {{ loading ? 'Importing…' : 'Import' }}
+              </button>
+              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
+            </div>
+          </section>
+        }
+        @if (trainingSubTab === 'Training Data') {
         <section class="results" [class.results-placeholder]="!getTrainingSheet()?.rows?.length">
           <h2>Training</h2>
           @if (getTrainingSheet(); as training) {
@@ -398,9 +605,10 @@
           } @else if (result) {
             <p class="results-table-empty">No Training sheet found in this file.</p>
           } @else {
-            <p class="results-table-empty">Upload and validate an Excel file to see training data.</p>
+            <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see training data.</p>
           }
         </section>
+        }
       }
 
       @if (topLevelTab === 'Assets') {
@@ -417,4 +625,44 @@
       Copyright© Syndesi Systems Limited 2023-2026. All Rights Reserved.
     </div>
   </footer>
+
+  @if (settingsDialogOpen) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+      <div class="dialog-backdrop" (click)="closeSettings()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="settings-dialog-title" class="dialog-title">Settings</h2>
+        <div class="dialog-body">
+          <label class="dialog-label" for="settings-api-key">ChatGPT API key</label>
+          <input
+            id="settings-api-key"
+            type="password"
+            class="dialog-input"
+            [value]="settingsApiKeyInput"
+            (input)="settingsApiKeyInput = $any($event.target).value"
+            placeholder="Paste your API key here"
+            autocomplete="off"
+          />
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeSettings()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveSettingsAndClose()">OK</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (nameCheckCompleteDialogOpen) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="name-check-complete-dialog-title">
+      <div class="dialog-backdrop" (click)="closeNameCheckCompleteDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="name-check-complete-dialog-title" class="dialog-title">Finished checking names</h2>
+        <div class="dialog-body">
+          <p class="dialog-message">ChatGPT has finished evaluating the name pairs. Check the table for warning icons where the probability that first and last names are reversed is 60% or higher.</p>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-primary" (click)="closeNameCheckCompleteDialog()">OK</button>
+        </div>
+      </div>
+    </div>
+  }
 </div>

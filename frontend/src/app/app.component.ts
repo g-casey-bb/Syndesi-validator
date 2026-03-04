@@ -1,5 +1,6 @@
-import { Component, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectorRef, OnInit, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
 import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
@@ -11,7 +12,7 @@ import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, Trai
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   result: ValidationResult | null = null;
   loading = false;
   error: string | null = null;
@@ -35,22 +36,254 @@ export class AppComponent {
   trainingShowOnlyInvalid = false;
 
   /** Top-level tab: Employees, Training, or Assets. Always visible. */
-  topLevelTab: 'Employees' | 'Training' | 'Assets' = 'Employees';
+  topLevelTab: 'Employees' | 'Agency Workers' | 'Training' | 'Assets' = 'Employees';
 
-  /** Active employee sub-tab: 'Employees' (Core), 'Agency Employees', or 'Instructor'. Used when topLevelTab is Employees. */
+  /** Sub-tab for Employees: Import (file upload) or Employee Data (table). */
+  employeesSubTab: 'Import' | 'Employee Data' = 'Import';
+
+  /** Sub-tab for Agency Workers: Import (file upload) or Agency Worker Data (table). */
+  agencySubTab: 'Import' | 'Agency Worker Data' = 'Import';
+
+  /** Active employee sub-tab: 'Employees' (Core), 'Agency Employees', or 'Instructor'. Used for Employee Data table. */
   activeTab: 'Employees' | 'Agency Employees' | 'Instructor' = 'Employees';
 
-  /** Top-level tabs (always three). */
-  readonly topLevelTabs: { id: 'Employees' | 'Training' | 'Assets'; label: string }[] = [
+  /** Sub-tab for Training: Import (file upload) or Training Data (table). */
+  trainingSubTab: 'Import' | 'Training Data' = 'Import';
+
+  /** When true, Employee Data table shows only rows that need attention. */
+  employeeTabShowOnlyInvalid = false;
+
+  /** When true, Agency Worker Data table shows only rows that need attention. */
+  agencyTabShowOnlyInvalid = false;
+
+  /** Top-level tabs (four). */
+  readonly topLevelTabs: { id: 'Employees' | 'Agency Workers' | 'Training' | 'Assets'; label: string }[] = [
     { id: 'Employees', label: 'Employees' },
+    { id: 'Agency Workers', label: 'Agency Workers' },
     { id: 'Training', label: 'Training' },
     { id: 'Assets', label: 'Assets' },
   ];
 
+  readonly employeesSubTabs: { id: 'Import' | 'Employee Data'; label: string }[] = [
+    { id: 'Import', label: 'Import' },
+    { id: 'Employee Data', label: 'Employee Data' },
+  ];
+
+  readonly agencySubTabs: { id: 'Import' | 'Agency Worker Data'; label: string }[] = [
+    { id: 'Import', label: 'Import' },
+    { id: 'Agency Worker Data', label: 'Agency Worker Data' },
+  ];
+
+  readonly trainingSubTabs: { id: 'Import' | 'Training Data'; label: string }[] = [
+    { id: 'Import', label: 'Import' },
+    { id: 'Training Data', label: 'Training Data' },
+  ];
+
+  /** Whether the Settings dialog is open. */
+  settingsDialogOpen = false;
+
+  /** ChatGPT API key (in-memory; persisted to localStorage on Settings OK). */
+  chatGptApiKey = '';
+
+  /** Temporary value for the API key while the Settings dialog is open (Cancel discards). */
+  settingsApiKeyInput = '';
+
+  /** Probability (0–1) that first/last names are reversed, keyed by rowIndex. Set by "Check names". */
+  nameCheckReversedProbability: Record<number, number> = {};
+
+  nameCheckLoading = false;
+  nameCheckError: string | null = null;
+
+  /** True when "Finished checking names" dialog is open. */
+  nameCheckCompleteDialogOpen = false;
+
+  /** Whether we have any name-check results to show (debug list / icons). */
+  get hasNameCheckResults(): boolean {
+    return Object.keys(this.nameCheckReversedProbability).length > 0;
+  }
+
+  private readonly CHATGPT_API_KEY_STORAGE = 'syndesi_chatgpt_api_key';
+  private readonly OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
+
   constructor(
     private validator: ExcelValidatorService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private http: HttpClient
   ) {}
+
+  ngOnInit(): void {
+    try {
+      this.chatGptApiKey = localStorage.getItem(this.CHATGPT_API_KEY_STORAGE) ?? '';
+    } catch {
+      this.chatGptApiKey = '';
+    }
+  }
+
+  openSettings(): void {
+    this.settingsApiKeyInput = this.chatGptApiKey;
+    this.settingsDialogOpen = true;
+  }
+
+  closeSettings(): void {
+    this.settingsDialogOpen = false;
+  }
+
+  saveSettingsAndClose(): void {
+    this.chatGptApiKey = this.settingsApiKeyInput.trim();
+    try {
+      if (this.chatGptApiKey) {
+        localStorage.setItem(this.CHATGPT_API_KEY_STORAGE, this.chatGptApiKey);
+      } else {
+        localStorage.removeItem(this.CHATGPT_API_KEY_STORAGE);
+      }
+    } catch {
+      /* ignore */
+    }
+    this.settingsDialogOpen = false;
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.settingsDialogOpen) {
+      this.closeSettings();
+    }
+  }
+
+  /** Build list of { firstName, lastName } from sheet rows (for ChatGPT). */
+  getEmployeeNamePairs(sheet: EmployeeSheetResult): { firstName: string; lastName: string }[] {
+    return (sheet.rows ?? []).map(r => ({
+      firstName: (r.firstName ?? '').trim(),
+      lastName: (r.lastName ?? '').trim(),
+    }));
+  }
+
+  /** Whether this row has a high probability that first/last names are reversed (≥60%). */
+  isNameReversedWarning(rowIndex: number): boolean {
+    const p = this.nameCheckReversedProbability[rowIndex];
+    return typeof p === 'number' && p >= 0.6;
+  }
+
+  closeNameCheckCompleteDialog(): void {
+    this.nameCheckCompleteDialogOpen = false;
+  }
+
+  checkNames(): void {
+    const sheet = this.getEmployeeSheet();
+    if (!sheet?.rows?.length) {
+      this.nameCheckError = 'No employee data to check.';
+      this.cdr.markForCheck();
+      return;
+    }
+    const key = this.chatGptApiKey?.trim();
+    if (!key) {
+      this.nameCheckError = 'Add a ChatGPT API key in Settings first.';
+      this.cdr.markForCheck();
+      return;
+    }
+    const pairs = this.getEmployeeNamePairs(sheet);
+    const eligible = (sheet.rows ?? [])
+      .map((row, i) => ({ row, pair: pairs[i] }))
+      .filter(({ pair }) => (pair.firstName.length > 0 && pair.lastName.length > 0));
+    const lines = eligible.map(({ pair }) => `${pair.firstName} ${pair.lastName}`);
+    const rowIndices = eligible.map(({ row }) => row.rowIndex);
+    if (lines.length === 0) {
+      this.nameCheckError = 'No names to check (need both first and last name for each row).';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.nameCheckError = null;
+    this.nameCheckLoading = true;
+    this.nameCheckReversedProbability = {};
+    this.cdr.markForCheck();
+
+    const prompt = `Analyse a list of {first_name, last_name} pairs and estimate the probability that the names are reversed (i.e., the surname appears in the first-name field and the given name appears in the last-name field).
+
+Use global reference lists only:
+- A large list of global first names.
+- A large list of global surnames / family names.
+
+For each pair:
+1. Compare the first_name against the global first-name list and the global surname list.
+2. Compare the last_name against the global surname list and the global first-name list.
+3. Estimate a probability_wrong_way_round based on the signals:
+ - If first_name appears primarily in the surname list and last_name appears in the first-name list, assign a high probability that the pair is reversed.
+ - If both tokens strongly match the expected pattern (first_name in first-name list and last_name in surname list), assign a low probability.
+ - If signals are mixed or ambiguous, assign a moderate probability.
+
+The list of pairs is below (one per line, format "first_name last_name"). Output a JSON array of numbers: one probability_wrong_way_round per line, same order as the pairs. Each number in the range 0–1. Output ONLY the JSON array, no other text.
+
+${lines.join('\n')}`;
+
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+    });
+    const body = {
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user' as const, content: prompt }],
+      temperature: 0.2,
+    };
+
+    this.http.post<{ choices?: { message?: { content?: string } }[] }>(this.OPENAI_CHAT_URL, body, { headers }).subscribe({
+      next: (res) => {
+        this.nameCheckLoading = false;
+        const content = res?.choices?.[0]?.message?.content?.trim();
+        if (!content) {
+          this.nameCheckError = 'No response from ChatGPT.';
+          this.cdr.markForCheck();
+          return;
+        }
+        const parsed = this.parseProbabilitiesJson(content);
+        if (parsed.length > 0) {
+          for (let j = 0; j < parsed.length && j < rowIndices.length; j++) {
+            if (typeof parsed[j] === 'number') {
+              this.nameCheckReversedProbability[rowIndices[j]] = parsed[j];
+            }
+          }
+          this.nameCheckCompleteDialogOpen = true;
+        } else {
+          this.nameCheckError = 'Could not parse probabilities from response.';
+        }
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.nameCheckLoading = false;
+        this.nameCheckError = err.error?.error?.message || err.message || 'ChatGPT request failed.';
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  /** For debug: list of { firstName, lastName, probability } for current employee sheet. */
+  getNameCheckDebugList(): { firstName: string; lastName: string; probability: number }[] {
+    const sheet = this.getEmployeeSheet();
+    if (!sheet?.rows?.length) return [];
+    return sheet.rows.map(row => ({
+      firstName: (row.firstName ?? '').trim(),
+      lastName: (row.lastName ?? '').trim(),
+      probability: this.nameCheckReversedProbability[row.rowIndex] ?? 0,
+    }));
+  }
+
+  /** Extract JSON array of numbers from model output (may be wrapped in markdown or text). */
+  private parseProbabilitiesJson(content: string): number[] {
+    const trimmed = content.trim();
+    let jsonStr = trimmed;
+    const arrayMatch = trimmed.match(/\[[\s\d.,eE+-]+\]/);
+    if (arrayMatch) {
+      jsonStr = arrayMatch[0];
+    }
+    try {
+      const arr = JSON.parse(jsonStr) as unknown;
+      if (!Array.isArray(arr)) return [];
+      return arr.map(x => {
+        const n = typeof x === 'number' ? x : parseFloat(String(x));
+        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+      });
+    } catch {
+      return [];
+    }
+  }
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -79,7 +312,10 @@ export class AppComponent {
     this.result = null;
     this.rowsToReverse = {};
     this.confirmedCells = {};
-    this.employeesShowOnlyInvalid = false;
+    this.nameCheckReversedProbability = {};
+    this.nameCheckError = null;
+    this.employeeTabShowOnlyInvalid = false;
+    this.agencyTabShowOnlyInvalid = false;
     this.trainingShowOnlyInvalid = false;
 
     this.validator.validateFile(this.selectedFile).subscribe({
@@ -97,6 +333,9 @@ export class AppComponent {
             : visible[0].id;
         }
         this.loading = false;
+        if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
+        else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
+        else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
       },
       error: (err) => {
         this.error = err.error?.message || err.message || 'Validation failed.';
@@ -111,10 +350,19 @@ export class AppComponent {
     this.selectedFile = null;
     this.rowsToReverse = {};
     this.confirmedCells = {};
+    this.nameCheckReversedProbability = {};
+    this.nameCheckError = null;
     this.topLevelTab = 'Employees';
+    this.employeesSubTab = 'Import';
+    this.agencySubTab = 'Import';
+    this.trainingSubTab = 'Import';
     this.activeTab = 'Employees';
     const input = document.getElementById('file-input') as HTMLInputElement;
+    const inputAgency = document.getElementById('file-input-agency') as HTMLInputElement;
+    const inputTraining = document.getElementById('file-input-training') as HTMLInputElement;
     if (input) input.value = '';
+    if (inputAgency) inputAgency.value = '';
+    if (inputTraining) inputTraining.value = '';
   }
 
   toggleRowToReverse(sheetName: string, rowIndex: number): void {
@@ -166,8 +414,52 @@ export class AppComponent {
     this.activeTab = tabId;
   }
 
-  setTopLevelTab(tabId: 'Employees' | 'Training' | 'Assets'): void {
+  setTopLevelTab(tabId: 'Employees' | 'Agency Workers' | 'Training' | 'Assets'): void {
     this.topLevelTab = tabId;
+  }
+
+  setEmployeesSubTab(id: 'Import' | 'Employee Data'): void {
+    this.employeesSubTab = id;
+  }
+
+  setAgencySubTab(id: 'Import' | 'Agency Worker Data'): void {
+    this.agencySubTab = id;
+  }
+
+  setTrainingSubTab(id: 'Import' | 'Training Data'): void {
+    this.trainingSubTab = id;
+  }
+
+  getEmployeeSheet(): EmployeeSheetResult | undefined {
+    return this.getSheetForTab('Employees');
+  }
+
+  getAgencySheet(): EmployeeSheetResult | undefined {
+    return this.getSheetForTab('Agency Employees');
+  }
+
+  getEmployeeAttentionCount(): number {
+    const sheet = this.getEmployeeSheet();
+    if (!sheet?.rows?.length) return 0;
+    const idLabel = this.getIdLabel(sheet);
+    return sheet.rows.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel)).length;
+  }
+
+  getAgencyAttentionCount(): number {
+    const sheet = this.getAgencySheet();
+    if (!sheet?.rows?.length) return 0;
+    const idLabel = this.getIdLabel(sheet);
+    return sheet.rows.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel)).length;
+  }
+
+  toggleEmployeeTabShowFilter(): void {
+    this.employeeTabShowOnlyInvalid = !this.employeeTabShowOnlyInvalid;
+    this.cdr.markForCheck();
+  }
+
+  toggleAgencyTabShowFilter(): void {
+    this.agencyTabShowOnlyInvalid = !this.agencyTabShowOnlyInvalid;
+    this.cdr.markForCheck();
   }
 
   readonly trainingEventTypes = ['Basic', 'Refresher', 'Observation'] as const;
@@ -434,8 +726,12 @@ export class AppComponent {
     this.updateSummary();
   }
 
-  /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. */
-  getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email', idLabel: string): string | null {
+  /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. For field 'nameReversed', pass sheet so we can check confirmation. */
+  getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed', idLabel: string, sheet?: { name: string }): string | null {
+    if (field === 'nameReversed') {
+      if (sheet && this.isNameReversedWarning(row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return 'First and last names may be reversed';
+      return null;
+    }
     if (field === 'email') {
       return row.comment && row.comment.includes('Invalid email address') ? 'Invalid email address' : null;
     }
@@ -471,16 +767,15 @@ export class AppComponent {
     return null;
   }
 
-  /** True when this cell should show the confirm button (has error but not a space error). Do not show for empty required fields. */
-  showConfirmButton(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email', idLabel: string): boolean {
+  /** True when this cell should show the confirm button (has error but not a space error). Do not show for empty required fields. For nameReversed pass sheet. */
+  showConfirmButton(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed', idLabel: string, sheet?: { name: string }): boolean {
+    if (field === 'nameReversed') return sheet ? this.getCellTooltip(row, 'nameReversed', idLabel, sheet) != null : false;
     if (field === 'email') return this.getCellTooltip(row, 'email', idLabel) != null;
     const val = field === 'employeeId' ? row.employeeId : field === 'firstName' ? row.firstName : row.lastName;
     if ((val ?? '').toString().trim() === '') return false;
     if (row.spaceErrors?.[field]) return false;
     return this.getCellTooltip(row, field, idLabel) != null;
   }
-
-  /** True when the string (after trim) contains two or more consecutive spaces. */
   private hasConsecutiveSpacesInName(val: string | undefined): boolean {
     return /\s{2,}/.test(String(val ?? '').trim());
   }
@@ -545,9 +840,9 @@ export class AppComponent {
     });
   }
 
-  getFilteredEmployeeRows(sheet: { name: string; rows?: ValidationRow[]; employeeIdentifierColumnLabel?: string }): ValidationRow[] {
+  getFilteredEmployeeRows(sheet: { name: string; rows?: ValidationRow[]; employeeIdentifierColumnLabel?: string }, showOnlyInvalid: boolean): ValidationRow[] {
     const sorted = this.getSortedRows(sheet);
-    if (!this.employeesShowOnlyInvalid) return sorted;
+    if (!showOnlyInvalid) return sorted;
     const idLabel = this.getIdLabel(sheet);
     return sorted.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel));
   }
@@ -567,7 +862,7 @@ export class AppComponent {
     return `${rowIndex}-${field}`;
   }
 
-  isCellConfirmed(sheetName: string, rowIndex: number, field: 'employeeId' | 'firstName' | 'lastName' | 'email'): boolean {
+  isCellConfirmed(sheetName: string, rowIndex: number, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed'): boolean {
     return this.confirmedCells[sheetName]?.has(this.cellKey(rowIndex, field)) ?? false;
   }
 
@@ -599,9 +894,9 @@ export class AppComponent {
   /** Show confirm button at row end (one per row) when row has at least one unconfirmed error that is confirmable (not missing data, not space-related). */
   showRowConfirmButton(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
     if (this.isDuplicateEmployeeRow(row) || !this.hasUnconfirmedRowErrors(row, sheet, idLabel)) return false;
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed')[] = ['employeeId', 'firstName', 'lastName', 'email', 'nameReversed'];
     for (const field of fields) {
-      const tip = this.getCellTooltip(row, field, idLabel);
+      const tip = field === 'nameReversed' ? this.getCellTooltip(row, field, idLabel, sheet) : this.getCellTooltip(row, field, idLabel);
       if (tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field) && this.isConfirmableTooltip(tip)) return true;
     }
     return false;
@@ -620,9 +915,9 @@ export class AppComponent {
   /** Confirm all unconfirmed errors in this row (called when user clicks the single row confirm button). */
   confirmRow(sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean; employeeIdentifierColumnLabel?: string }, row: ValidationRow): void {
     const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
-    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
+    const fields: ('employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed')[] = ['employeeId', 'firstName', 'lastName', 'email', 'nameReversed'];
     for (const field of fields) {
-      if (this.showConfirmButton(row, field, idLabel)) this.confirmCell(sheet, row, field);
+      if (this.showConfirmButton(row, field, idLabel, field === 'nameReversed' ? sheet : undefined)) this.confirmCell(sheet, row, field);
     }
     this.cdr.markForCheck();
   }
@@ -654,7 +949,14 @@ export class AppComponent {
     this.cdr.markForCheck();
   }
 
-  confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email'): void {
+  confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed'): void {
+    if (field === 'nameReversed') {
+      const sheetName = sheet.name;
+      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
+      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'nameReversed'));
+      this.cdr.markForCheck();
+      return;
+    }
     if (field === 'email') {
       const sheetName = sheet.name;
       if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
@@ -699,6 +1001,7 @@ export class AppComponent {
 
   /** Row has at least one validation error that is not confirmed (so row should show as invalid). */
   hasUnconfirmedRowErrors(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
+    if (this.isNameReversedWarning(row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return true;
     if (row.isValid) return false;
     const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
@@ -709,17 +1012,9 @@ export class AppComponent {
   }
 
   /** Count of rows that still need attention (have unconfirmed errors). Updates when edits are made or cells are confirmed/deleted. */
+  /** Count of rows needing attention across all employee sheets (for backward compatibility). */
   getEmployeesWhoNeedAttentionCount(): number {
-    if (!this.result?.employeeSheets) return 0;
-    let count = 0;
-    for (const sheet of this.result.employeeSheets) {
-      const rows = sheet.rows ?? [];
-      const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
-      for (const row of rows) {
-        if (this.hasUnconfirmedRowErrors(row, sheet, idLabel)) count++;
-      }
-    }
-    return count;
+    return this.getEmployeeAttentionCount() + this.getAgencyAttentionCount();
   }
 
   /** True when row had errors but every error has been confirmed (so row should show as validated). */
@@ -734,6 +1029,10 @@ export class AppComponent {
         hasError = true;
         if (!this.isCellConfirmed(sheet.name, row.rowIndex, field)) allConfirmed = false;
       }
+    }
+    if (this.isNameReversedWarning(row.rowIndex)) {
+      hasError = true;
+      if (!this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) allConfirmed = false;
     }
     return hasError && allConfirmed;
   }
