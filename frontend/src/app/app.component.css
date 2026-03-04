@@ -367,6 +367,20 @@
   border-bottom-color: var(--syndesi-primary);
 }
 
+.tab-btn .tab-close {
+  margin-left: 0.35rem;
+  padding: 0 0.2rem;
+  font-size: 1.1em;
+  line-height: 1;
+  opacity: 0.75;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.tab-btn .tab-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .badge {
   padding: 0.35rem 0.75rem;
   border-radius: 999px;

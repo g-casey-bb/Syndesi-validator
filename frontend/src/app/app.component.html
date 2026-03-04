@@ -40,6 +40,9 @@
           @for (tab of employeesSubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="employeesSubTab === tab.id" (click)="setEmployeesSubTab(tab.id)">
               {{ tab.label }}
+              @if (tab.id === 'Import' && importedFileLabel) {
+                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              }
             </button>
           }
         </div>
@@ -135,20 +138,11 @@
                             }
                           </div>
                         </td>
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellTooltip(row, 'firstName', getIdLabel(sheet))">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
-                            @if (getCellTooltip(row, 'firstName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'firstName')) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'firstName', getIdLabel(sheet))" role="img" aria-label="Validation error">
-                                <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
-                                  <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
-                                  <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
-                                </svg>
-                              </span>
-                            }
-                            @if (isNameReversedWarning(row.rowIndex)) {
-                              <span class="cell-invalid-icon" title="First and last names may be reversed" role="img" aria-label="Names may be reversed">
+                            @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
+                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -158,20 +152,11 @@
                             }
                           </div>
                         </td>
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellTooltip(row, 'lastName', getIdLabel(sheet))">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
-                            @if (getCellTooltip(row, 'lastName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'lastName')) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'lastName', getIdLabel(sheet))" role="img" aria-label="Validation error">
-                                <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
-                                  <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
-                                  <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
-                                </svg>
-                              </span>
-                            }
-                            @if (isNameReversedWarning(row.rowIndex)) {
-                              <span class="cell-invalid-icon" title="First and last names may be reversed" role="img" aria-label="Names may be reversed">
+                            @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
+                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -252,21 +237,13 @@
           }
         </div>
         <div class="employee-data-actions">
-          <button type="button" class="btn btn-secondary" (click)="checkNames()" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
+          <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
             {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
           </button>
           @if (nameCheckError) {
             <span class="name-check-error">{{ nameCheckError }}</span>
           }
         </div>
-        @if (hasNameCheckResults) {
-          <div class="name-check-debug">
-            <div class="name-check-debug-title">Debug: probability (reversed) per name</div>
-            @for (item of getNameCheckDebugList(); track $index) {
-              <div class="name-check-debug-line">{{ item.firstName }} {{ item.lastName }} → {{ (item.probability * 100).toFixed(0) }}%</div>
-            }
-          </div>
-        }
               } @else {
                 <p class="results-table-empty">No employee data in this sheet.</p>
               }
@@ -284,6 +261,9 @@
           @for (tab of agencySubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="agencySubTab === tab.id" (click)="setAgencySubTab(tab.id)">
               {{ tab.label }}
+              @if (tab.id === 'Import' && importedFileLabel) {
+                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              }
             </button>
           }
         </div>
@@ -365,21 +345,21 @@
                           }
                         </div>
                       </td>
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellTooltip(row, 'firstName', getIdLabel(sheet))">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
-                          @if (getCellTooltip(row, 'firstName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'firstName')) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'firstName', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                          @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
                         </div>
                       </td>
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellTooltip(row, 'lastName', getIdLabel(sheet))">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
-                          @if (getCellTooltip(row, 'lastName', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'lastName')) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'lastName', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                          @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
+                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
@@ -433,6 +413,14 @@
             </div>
           </div>
         </div>
+        <div class="employee-data-actions">
+          <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
+            {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
+          </button>
+          @if (nameCheckError) {
+            <span class="name-check-error">{{ nameCheckError }}</span>
+          }
+        </div>
               } @else {
                 <p class="results-table-empty">No agency worker data in this sheet.</p>
               }
@@ -450,6 +438,9 @@
           @for (tab of trainingSubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="trainingSubTab === tab.id" (click)="setTrainingSubTab(tab.id)">
               {{ tab.label }}
+              @if (tab.id === 'Import' && importedFileLabel) {
+                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              }
             </button>
           }
         </div>
@@ -651,18 +642,4 @@
     </div>
   }
 
-  @if (nameCheckCompleteDialogOpen) {
-    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="name-check-complete-dialog-title">
-      <div class="dialog-backdrop" (click)="closeNameCheckCompleteDialog()"></div>
-      <div class="dialog-modal" (click)="$event.stopPropagation()">
-        <h2 id="name-check-complete-dialog-title" class="dialog-title">Finished checking names</h2>
-        <div class="dialog-body">
-          <p class="dialog-message">ChatGPT has finished evaluating the name pairs. Check the table for warning icons where the probability that first and last names are reversed is 60% or higher.</p>
-        </div>
-        <div class="dialog-actions">
-          <button type="button" class="btn btn-primary" (click)="closeNameCheckCompleteDialog()">OK</button>
-        </div>
-      </div>
-    </div>
-  }
 </div>

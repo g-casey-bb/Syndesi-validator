@@ -64,20 +64,29 @@ export class AppComponent implements OnInit {
     { id: 'Assets', label: 'Assets' },
   ];
 
-  readonly employeesSubTabs: { id: 'Import' | 'Employee Data'; label: string }[] = [
-    { id: 'Import', label: 'Import' },
-    { id: 'Employee Data', label: 'Employee Data' },
-  ];
+  /** Import tab label: set to file name after import, reverted to 'Import' on Clear. */
+  importedFileLabel: string | null = null;
 
-  readonly agencySubTabs: { id: 'Import' | 'Agency Worker Data'; label: string }[] = [
-    { id: 'Import', label: 'Import' },
-    { id: 'Agency Worker Data', label: 'Agency Worker Data' },
-  ];
+  get employeesSubTabs(): { id: 'Import' | 'Employee Data'; label: string }[] {
+    return [
+      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Employee Data', label: 'Employee Data' },
+    ];
+  }
 
-  readonly trainingSubTabs: { id: 'Import' | 'Training Data'; label: string }[] = [
-    { id: 'Import', label: 'Import' },
-    { id: 'Training Data', label: 'Training Data' },
-  ];
+  get agencySubTabs(): { id: 'Import' | 'Agency Worker Data'; label: string }[] {
+    return [
+      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Agency Worker Data', label: 'Agency Worker Data' },
+    ];
+  }
+
+  get trainingSubTabs(): { id: 'Import' | 'Training Data'; label: string }[] {
+    return [
+      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Training Data', label: 'Training Data' },
+    ];
+  }
 
   /** Whether the Settings dialog is open. */
   settingsDialogOpen = false;
@@ -88,8 +97,8 @@ export class AppComponent implements OnInit {
   /** Temporary value for the API key while the Settings dialog is open (Cancel discards). */
   settingsApiKeyInput = '';
 
-  /** Probability (0–1) that first/last names are reversed, keyed by rowIndex. Set by "Check names". */
-  nameCheckReversedProbability: Record<number, number> = {};
+  /** Probability (0–1) that first/last names are reversed, by sheet name then rowIndex. Set by "Check names". */
+  nameCheckReversedProbability: Record<string, Record<number, number>> = {};
 
   nameCheckLoading = false;
   nameCheckError: string | null = null;
@@ -97,9 +106,11 @@ export class AppComponent implements OnInit {
   /** True when "Finished checking names" dialog is open. */
   nameCheckCompleteDialogOpen = false;
 
-  /** Whether we have any name-check results to show (debug list / icons). */
+  /** Whether we have any name-check results to show (for dialog). */
   get hasNameCheckResults(): boolean {
-    return Object.keys(this.nameCheckReversedProbability).length > 0;
+    return Object.keys(this.nameCheckReversedProbability).some(
+      sheetName => Object.keys(this.nameCheckReversedProbability[sheetName] ?? {}).length > 0
+    );
   }
 
   private readonly CHATGPT_API_KEY_STORAGE = 'syndesi_chatgpt_api_key';
@@ -158,8 +169,10 @@ export class AppComponent implements OnInit {
   }
 
   /** Whether this row has a high probability that first/last names are reversed (≥60%). */
-  isNameReversedWarning(rowIndex: number): boolean {
-    const p = this.nameCheckReversedProbability[rowIndex];
+  isNameReversedWarning(sheetName: string, rowIndex: number): boolean {
+    const bySheet = this.nameCheckReversedProbability[sheetName];
+    if (!bySheet) return false;
+    const p = bySheet[rowIndex];
     return typeof p === 'number' && p >= 0.6;
   }
 
@@ -167,8 +180,7 @@ export class AppComponent implements OnInit {
     this.nameCheckCompleteDialogOpen = false;
   }
 
-  checkNames(): void {
-    const sheet = this.getEmployeeSheet();
+  checkNames(sheet: EmployeeSheetResult): void {
     if (!sheet?.rows?.length) {
       this.nameCheckError = 'No employee data to check.';
       this.cdr.markForCheck();
@@ -183,7 +195,7 @@ export class AppComponent implements OnInit {
     const pairs = this.getEmployeeNamePairs(sheet);
     const eligible = (sheet.rows ?? [])
       .map((row, i) => ({ row, pair: pairs[i] }))
-      .filter(({ pair }) => (pair.firstName.length > 0 && pair.lastName.length > 0));
+      .filter(({ pair }) => (pair.firstName.length > 0 && pair.lastName.length > 0 && pair.firstName !== pair.lastName));
     const lines = eligible.map(({ pair }) => `${pair.firstName} ${pair.lastName}`);
     const rowIndices = eligible.map(({ row }) => row.rowIndex);
     if (lines.length === 0) {
@@ -193,7 +205,8 @@ export class AppComponent implements OnInit {
     }
     this.nameCheckError = null;
     this.nameCheckLoading = true;
-    this.nameCheckReversedProbability = {};
+    if (!this.nameCheckReversedProbability[sheet.name]) this.nameCheckReversedProbability[sheet.name] = {};
+    this.nameCheckReversedProbability[sheet.name] = {};
     this.cdr.markForCheck();
 
     const prompt = `Analyse a list of {first_name, last_name} pairs and estimate the probability that the names are reversed (i.e., the surname appears in the first-name field and the given name appears in the last-name field).
@@ -237,10 +250,9 @@ ${lines.join('\n')}`;
         if (parsed.length > 0) {
           for (let j = 0; j < parsed.length && j < rowIndices.length; j++) {
             if (typeof parsed[j] === 'number') {
-              this.nameCheckReversedProbability[rowIndices[j]] = parsed[j];
+              this.nameCheckReversedProbability[sheet.name][rowIndices[j]] = parsed[j];
             }
           }
-          this.nameCheckCompleteDialogOpen = true;
         } else {
           this.nameCheckError = 'Could not parse probabilities from response.';
         }
@@ -254,14 +266,14 @@ ${lines.join('\n')}`;
     });
   }
 
-  /** For debug: list of { firstName, lastName, probability } for current employee sheet. */
-  getNameCheckDebugList(): { firstName: string; lastName: string; probability: number }[] {
-    const sheet = this.getEmployeeSheet();
+  /** For debug: list of { firstName, lastName, probability } for a sheet. */
+  getNameCheckDebugList(sheet: EmployeeSheetResult): { firstName: string; lastName: string; probability: number }[] {
     if (!sheet?.rows?.length) return [];
+    const bySheet = this.nameCheckReversedProbability[sheet.name] ?? {};
     return sheet.rows.map(row => ({
       firstName: (row.firstName ?? '').trim(),
       lastName: (row.lastName ?? '').trim(),
-      probability: this.nameCheckReversedProbability[row.rowIndex] ?? 0,
+      probability: bySheet[row.rowIndex] ?? 0,
     }));
   }
 
@@ -333,6 +345,7 @@ ${lines.join('\n')}`;
             : visible[0].id;
         }
         this.loading = false;
+        this.importedFileLabel = this.selectedFile?.name ?? null;
         if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
         else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
         else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
@@ -348,6 +361,7 @@ ${lines.join('\n')}`;
     this.result = null;
     this.error = null;
     this.selectedFile = null;
+    this.importedFileLabel = null;
     this.rowsToReverse = {};
     this.confirmedCells = {};
     this.nameCheckReversedProbability = {};
@@ -428,6 +442,19 @@ ${lines.join('\n')}`;
 
   setTrainingSubTab(id: 'Import' | 'Training Data'): void {
     this.trainingSubTab = id;
+  }
+
+  /** Revert the Import tab label and clear file selection so a new file can be chosen. Does not clear result or data tabs. */
+  clearImportedFileLabel(): void {
+    this.importedFileLabel = null;
+    this.selectedFile = null;
+    const input = document.getElementById('file-input') as HTMLInputElement;
+    const inputAgency = document.getElementById('file-input-agency') as HTMLInputElement;
+    const inputTraining = document.getElementById('file-input-training') as HTMLInputElement;
+    if (input) input.value = '';
+    if (inputAgency) inputAgency.value = '';
+    if (inputTraining) inputTraining.value = '';
+    this.cdr.markForCheck();
   }
 
   getEmployeeSheet(): EmployeeSheetResult | undefined {
@@ -729,7 +756,7 @@ ${lines.join('\n')}`;
   /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. For field 'nameReversed', pass sheet so we can check confirmation. */
   getCellTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed', idLabel: string, sheet?: { name: string }): string | null {
     if (field === 'nameReversed') {
-      if (sheet && this.isNameReversedWarning(row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return 'First and last names may be reversed';
+      if (sheet && this.isNameReversedWarning(sheet.name, row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return 'First and last names may be reversed';
       return null;
     }
     if (field === 'email') {
@@ -765,6 +792,18 @@ ${lines.join('\n')}`;
       if ((field === 'firstName' || field === 'lastName') && (isNameRelated || c.includes('duplicate') || (c.includes('multiple') && c.includes('employee')))) return row.comment;
     }
     return null;
+  }
+
+  /** Single tooltip to show for a cell (at most one icon). For firstName/lastName prefers validation error over name-reversed. */
+  getCellDisplayTooltip(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email', idLabel: string, sheet: { name: string }): string | null {
+    if (field === 'firstName' || field === 'lastName') {
+      const validationTip = this.getCellTooltip(row, field, idLabel);
+      if (validationTip && !this.isCellConfirmed(sheet.name, row.rowIndex, field)) return validationTip;
+      if (this.isNameReversedWarning(sheet.name, row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return 'First and last names may be reversed';
+      return null;
+    }
+    const tip = this.getCellTooltip(row, field, idLabel);
+    return tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field) ? tip : null;
   }
 
   /** True when this cell should show the confirm button (has error but not a space error). Do not show for empty required fields. For nameReversed pass sheet. */
@@ -1001,7 +1040,7 @@ ${lines.join('\n')}`;
 
   /** Row has at least one validation error that is not confirmed (so row should show as invalid). */
   hasUnconfirmedRowErrors(row: ValidationRow, sheet: { name: string; rows?: ValidationRow[]; showEmailColumn?: boolean }, idLabel: string): boolean {
-    if (this.isNameReversedWarning(row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return true;
+    if (this.isNameReversedWarning(sheet.name, row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) return true;
     if (row.isValid) return false;
     const fields: ('employeeId' | 'firstName' | 'lastName' | 'email')[] = ['employeeId', 'firstName', 'lastName', 'email'];
     for (const field of fields) {
@@ -1030,7 +1069,7 @@ ${lines.join('\n')}`;
         if (!this.isCellConfirmed(sheet.name, row.rowIndex, field)) allConfirmed = false;
       }
     }
-    if (this.isNameReversedWarning(row.rowIndex)) {
+    if (this.isNameReversedWarning(sheet.name, row.rowIndex)) {
       hasError = true;
       if (!this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed')) allConfirmed = false;
     }
