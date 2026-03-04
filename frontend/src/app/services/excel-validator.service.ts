@@ -29,4 +29,17 @@ export class ExcelValidatorService {
       responseType: 'blob'
     });
   }
+
+  /** Upload a skill photo (image). Returns { id } for download. */
+  uploadSkillPhoto(file: File, folder: string): Observable<{ id: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (folder) formData.append('folder', folder);
+    return this.http.post<{ id: string }>(`${API_URL}/skill-photo/upload`, formData);
+  }
+
+  /** URL to download a skill photo by id (backend proxy). */
+  getSkillPhotoDownloadUrl(id: string): string {
+    return `${API_URL}/skill-photo/download/${encodeURIComponent(id)}`;
+  }
 }

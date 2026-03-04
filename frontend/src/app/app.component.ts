@@ -91,17 +91,79 @@ export class AppComponent implements OnInit {
   /** Whether the Settings dialog is open. */
   settingsDialogOpen = false;
 
+  /** Whether the Maintenance page is visible. */
+  maintenancePageOpen = false;
+
+  /** Active tab on Maintenance page. */
+  maintenanceTab: 'Skills' | 'Testing' = 'Skills';
+
+  /** Skills list from Maintenance upload, persisted in localStorage. */
+  skillsList: string[] = [];
+
+  /** Testing tab: Customer, Site, User (persisted in localStorage). */
+  testingCustomer = '';
+  testingSite = '';
+  testingUser = '';
+
+  /** Whether the skills list section is expanded. */
+  skillsListExpanded = false;
+
+  private readonly SKILLS_STORAGE_KEY = 'syndesi_skills';
+  private readonly SKILL_QUERIES_STORAGE_KEY = 'syndesi_skill_queries';
+  private readonly NEXT_SKILL_QUERY_ID_KEY = 'syndesi_skill_query_next_id';
+  private readonly SKILL_QUERIES_ADDED_IDS_KEY = 'syndesi_skill_queries_added_ids';
+  private readonly TESTING_CUSTOMER_KEY = 'syndesi_testing_customer';
+  private readonly TESTING_SITE_KEY = 'syndesi_testing_site';
+  private readonly TESTING_USER_KEY = 'syndesi_testing_user';
+
+  /** Unknown Skill dialog: when + is clicked for unrecognised skill. */
+  unknownSkillDialogOpen = false;
+  unknownSkillDialogSkill = '';
+  unknownSkillForm: { assetId: string; make: string; model: string; attachment: string; photoUrl: string; imageData: string | null } = {
+    assetId: '',
+    make: '',
+    model: '',
+    attachment: '',
+    photoUrl: '',
+    imageData: null,
+  };
+
+  /** Sent skill queries (stored in localStorage). */
+  skillQueries: { id: number; customer: string; site: string; user: string; assetId: string; skillName: string; make: string; model: string; attachment: string; photoUrl: string; imageData?: string; imageDriveItemId?: string }[] = [];
+  private nextSkillQueryId = 1;
+
+  /** Query being reviewed in the Review Skill dialog (null when closed). */
+  reviewSkillQuery: { id: number; skillName: string; make: string; model: string; assetId: string; attachment: string; photoUrl: string; imageDriveItemId?: string; imageData?: string } | null = null;
+
+  /** Editable form in Review Skill dialog; saved on Add, discarded on Close. */
+  reviewSkillForm: { skillName: string; make: string; model: string; assetId: string; attachment: string; photoUrl: string } = {
+    skillName: '', make: '', model: '', assetId: '', attachment: '', photoUrl: '',
+  };
+
+  /** IDs of skill queries that have been added to the Skills list (rows are hidden, not deleted). */
+  skillQueriesAddedIds = new Set<number>();
+
   /** ChatGPT API key (in-memory; persisted to localStorage on Settings OK). */
   chatGptApiKey = '';
 
   /** Temporary value for the API key while the Settings dialog is open (Cancel discards). */
   settingsApiKeyInput = '';
 
+  /** Skill photos folder (OneDrive path or folder id), persisted in Settings. */
+  skillPhotosFolder = '';
+
+  /** Temporary value for Skill photos folder while Settings dialog is open. */
+  settingsSkillPhotosFolderInput = '';
+
   /** Probability (0–1) that first/last names are reversed, by sheet name then rowIndex. Set by "Check names". */
   nameCheckReversedProbability: Record<string, Record<number, number>> = {};
 
   nameCheckLoading = false;
   nameCheckError: string | null = null;
+
+  /** Set while uploading skill photo in Unknown Skill dialog. */
+  unknownSkillPhotoUploading = false;
+  unknownSkillPhotoUploadError: string | null = null;
 
   /** True when "Finished checking names" dialog is open. */
   nameCheckCompleteDialogOpen = false;
@@ -114,6 +176,7 @@ export class AppComponent implements OnInit {
   }
 
   private readonly CHATGPT_API_KEY_STORAGE = 'syndesi_chatgpt_api_key';
+  private readonly SKILL_PHOTOS_FOLDER_STORAGE = 'syndesi_skill_photos_folder';
   private readonly OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 
   constructor(
@@ -125,13 +188,464 @@ export class AppComponent implements OnInit {
   ngOnInit(): void {
     try {
       this.chatGptApiKey = localStorage.getItem(this.CHATGPT_API_KEY_STORAGE) ?? '';
+      this.skillPhotosFolder = localStorage.getItem(this.SKILL_PHOTOS_FOLDER_STORAGE) ?? '';
+      this.testingCustomer = localStorage.getItem(this.TESTING_CUSTOMER_KEY) ?? '';
+      this.testingSite = localStorage.getItem(this.TESTING_SITE_KEY) ?? '';
+      this.testingUser = localStorage.getItem(this.TESTING_USER_KEY) ?? '';
     } catch {
       this.chatGptApiKey = '';
+      this.skillPhotosFolder = '';
+      this.testingCustomer = '';
+      this.testingSite = '';
+      this.testingUser = '';
     }
+    this.loadSkillsFromStorage();
+    this.loadSkillQueriesFromStorage();
+  }
+
+  openMaintenance(): void {
+    this.maintenancePageOpen = true;
+    this.loadSkillsFromStorage();
+    this.loadSkillQueriesFromStorage();
+    this.loadTestingFromStorage();
+    this.cdr.markForCheck();
+  }
+
+  loadTestingFromStorage(): void {
+    try {
+      this.testingCustomer = localStorage.getItem(this.TESTING_CUSTOMER_KEY) ?? '';
+      this.testingSite = localStorage.getItem(this.TESTING_SITE_KEY) ?? '';
+      this.testingUser = localStorage.getItem(this.TESTING_USER_KEY) ?? '';
+    } catch {
+      this.testingCustomer = '';
+      this.testingSite = '';
+      this.testingUser = '';
+    }
+  }
+
+  setTestingCustomer(value: string): void {
+    this.testingCustomer = value;
+    try {
+      localStorage.setItem(this.TESTING_CUSTOMER_KEY, value);
+    } catch { /* ignore */ }
+    this.cdr.markForCheck();
+  }
+
+  setTestingSite(value: string): void {
+    this.testingSite = value;
+    try {
+      localStorage.setItem(this.TESTING_SITE_KEY, value);
+    } catch { /* ignore */ }
+    this.cdr.markForCheck();
+  }
+
+  setTestingUser(value: string): void {
+    this.testingUser = value;
+    try {
+      localStorage.setItem(this.TESTING_USER_KEY, value);
+    } catch { /* ignore */ }
+    this.cdr.markForCheck();
+  }
+
+  closeMaintenance(): void {
+    this.maintenancePageOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  loadSkillsFromStorage(): void {
+    try {
+      const raw = localStorage.getItem(this.SKILLS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        this.skillsList = Array.isArray(parsed)
+          ? parsed.filter((x): x is string => typeof x === 'string').map(s => String(s).trim()).filter(Boolean)
+          : [];
+      } else {
+        this.skillsList = [];
+      }
+    } catch {
+      this.skillsList = [];
+    }
+  }
+
+  saveSkillsToStorage(skills: string[]): void {
+    try {
+      localStorage.setItem(this.SKILLS_STORAGE_KEY, JSON.stringify(skills));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  onSkillsFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = reader.result as string;
+      const skills = this.parseSkillsJson(content);
+      this.skillsList = skills;
+      this.saveSkillsToStorage(skills);
+      this.cdr.markForCheck();
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+  /** Parse JSON file: array of strings, or array of objects with name/skill. */
+  private parseSkillsJson(content: string): string[] {
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map(item => {
+          if (typeof item === 'string') return item.trim();
+          if (item && typeof item === 'object') {
+            const o = item as Record<string, unknown>;
+            const s = (o['name'] ?? o['skill'] ?? o['title']) as string | undefined;
+            return s != null ? String(s).trim() : '';
+          }
+          return '';
+        })
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  clearSkills(): void {
+    this.skillsList = [];
+    try {
+      localStorage.removeItem(this.SKILLS_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    this.cdr.markForCheck();
+  }
+
+  toggleSkillsListExpanded(): void {
+    this.skillsListExpanded = !this.skillsListExpanded;
+    this.cdr.markForCheck();
+  }
+
+  loadSkillQueriesFromStorage(): void {
+    try {
+      const raw = localStorage.getItem(this.SKILL_QUERIES_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      this.skillQueries = Array.isArray(parsed)
+        ? parsed.map((q: Record<string, unknown>) => ({
+            id: Number(q['id']),
+            customer: typeof q['customer'] === 'string' ? q['customer'] : '',
+            site: typeof q['site'] === 'string' ? q['site'] : '',
+            user: typeof q['user'] === 'string' ? q['user'] : '',
+            assetId: typeof q['assetId'] === 'string' ? q['assetId'] : '',
+            skillName: String(q['skillName'] ?? ''),
+            make: String(q['make'] ?? ''),
+            model: String(q['model'] ?? ''),
+            attachment: String(q['attachment'] ?? ''),
+            photoUrl: String(q['photoUrl'] ?? ''),
+            ...(q['imageData'] ? { imageData: q['imageData'] as string } : {}),
+            ...(typeof q['imageDriveItemId'] === 'string' ? { imageDriveItemId: q['imageDriveItemId'] } : {}),
+          }))
+        : [];
+      const nextRaw = localStorage.getItem(this.NEXT_SKILL_QUERY_ID_KEY);
+      this.nextSkillQueryId = nextRaw ? Math.max(1, parseInt(nextRaw, 10)) : 1;
+      const addedRaw = localStorage.getItem(this.SKILL_QUERIES_ADDED_IDS_KEY);
+      const addedArr = addedRaw ? (JSON.parse(addedRaw) as unknown) : [];
+      this.skillQueriesAddedIds = new Set(Array.isArray(addedArr) ? addedArr.map((n: unknown) => Number(n)).filter((n: number) => !Number.isNaN(n)) : []);
+    } catch {
+      this.skillQueries = [];
+      this.nextSkillQueryId = 1;
+      this.skillQueriesAddedIds = new Set();
+    }
+  }
+
+  private saveSkillQueriesToStorage(): void {
+    try {
+      localStorage.setItem(this.SKILL_QUERIES_STORAGE_KEY, JSON.stringify(this.skillQueries));
+      localStorage.setItem(this.NEXT_SKILL_QUERY_ID_KEY, String(this.nextSkillQueryId));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private saveSkillQueriesAddedIdsToStorage(): void {
+    try {
+      localStorage.setItem(this.SKILL_QUERIES_ADDED_IDS_KEY, JSON.stringify([...this.skillQueriesAddedIds]));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  wasSkillQueryAddedToSkills(id: number): boolean {
+    return this.skillQueriesAddedIds.has(id);
+  }
+
+  clearAllSkillQueries(): void {
+    this.skillQueries = [];
+    this.nextSkillQueryId = 1;
+    this.skillQueriesAddedIds = new Set();
+    this.saveSkillQueriesToStorage();
+    this.saveSkillQueriesAddedIdsToStorage();
+    this.cdr.markForCheck();
+  }
+
+  updateSkillQueryField(id: number, field: 'customer' | 'site' | 'user' | 'assetId' | 'skillName' | 'make' | 'model' | 'attachment' | 'photoUrl', value: string): void {
+    const q = this.skillQueries.find(x => x.id === id);
+    if (q) {
+      q[field] = value;
+      this.saveSkillQueriesToStorage();
+      this.cdr.markForCheck();
+    }
+  }
+
+  addSkillQueryToSkillsList(id: number, skillName: string): void {
+    const name = (skillName ?? '').trim();
+    if (!name) return;
+    if (!this.skillsList.includes(name)) {
+      this.skillsList = [...this.skillsList, name];
+      this.saveSkillsToStorage(this.skillsList);
+    }
+    this.skillQueriesAddedIds.add(id);
+    this.saveSkillQueriesAddedIdsToStorage();
+    this.cdr.markForCheck();
+  }
+
+  /** Whether the skill query has a photo (uploaded or legacy inline). */
+  hasSkillQueryPhoto(q: { imageDriveItemId?: string; imageData?: string }): boolean {
+    return !!(q.imageDriveItemId || (q.imageData && (q.imageData as string).startsWith('data:')));
+  }
+
+  /** URL to open/download the skill query photo (backend proxy or data URL). */
+  getSkillQueryPhotoUrl(q: { imageDriveItemId?: string; imageData?: string }): string {
+    if (q.imageDriveItemId) return this.validator.getSkillPhotoDownloadUrl(q.imageDriveItemId);
+    if (q.imageData && (q.imageData as string).startsWith('data:')) return q.imageData as string;
+    return '';
+  }
+
+  openReviewSkill(q: typeof this.skillQueries[0]): void {
+    this.reviewSkillQuery = {
+      id: q.id,
+      skillName: q.skillName,
+      make: q.make,
+      model: q.model,
+      assetId: q.assetId,
+      attachment: q.attachment,
+      photoUrl: q.photoUrl,
+      ...(q.imageDriveItemId ? { imageDriveItemId: q.imageDriveItemId } : {}),
+      ...(q.imageData ? { imageData: q.imageData } : {}),
+    };
+    this.reviewSkillForm = {
+      skillName: q.skillName,
+      make: q.make,
+      model: q.model,
+      assetId: q.assetId,
+      attachment: q.attachment,
+      photoUrl: q.photoUrl,
+    };
+    this.cdr.markForCheck();
+  }
+
+  closeReviewSkill(): void {
+    this.reviewSkillQuery = null;
+    this.cdr.markForCheck();
+  }
+
+  setReviewSkillFormSkillName(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, skillName: value };
+    this.cdr.markForCheck();
+  }
+  setReviewSkillFormMake(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, make: value };
+    this.cdr.markForCheck();
+  }
+  setReviewSkillFormModel(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, model: value };
+    this.cdr.markForCheck();
+  }
+  setReviewSkillFormAssetId(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, assetId: value };
+    this.cdr.markForCheck();
+  }
+  setReviewSkillFormAttachment(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, attachment: value };
+    this.cdr.markForCheck();
+  }
+  setReviewSkillFormPhotoUrl(value: string): void {
+    this.reviewSkillForm = { ...this.reviewSkillForm, photoUrl: value };
+    this.cdr.markForCheck();
+  }
+
+  saveReviewSkill(): void {
+    if (!this.reviewSkillQuery) return;
+    const id = this.reviewSkillQuery.id;
+    const skillName = (this.reviewSkillForm.skillName ?? '').trim();
+    const q = this.skillQueries.find(x => x.id === id);
+    if (q) {
+      if (skillName && !this.skillsList.includes(skillName)) {
+        this.skillsList = [...this.skillsList, skillName];
+        this.saveSkillsToStorage(this.skillsList);
+      }
+      this.skillQueries = this.skillQueries.filter(x => x.id !== id);
+      this.saveSkillQueriesToStorage();
+      this.skillQueriesAddedIds.delete(id);
+      this.saveSkillQueriesAddedIdsToStorage();
+    }
+    this.closeReviewSkill();
+  }
+
+  openUnknownSkillDialog(skill: string): void {
+    this.unknownSkillDialogSkill = (skill ?? '').trim();
+    this.unknownSkillForm = { assetId: '', make: '', model: '', attachment: '', photoUrl: '', imageData: null };
+    this.unknownSkillPhotoUploadError = null;
+    this.unknownSkillDialogOpen = true;
+    this.cdr.markForCheck();
+  }
+
+  closeUnknownSkillDialog(): void {
+    this.unknownSkillDialogOpen = false;
+    this.unknownSkillDialogSkill = '';
+    this.unknownSkillForm = { assetId: '', make: '', model: '', attachment: '', photoUrl: '', imageData: null };
+    this.cdr.markForCheck();
+  }
+
+  canSendUnknownSkill(): boolean {
+    const f = this.unknownSkillForm;
+    return (f.assetId ?? '').trim().length > 0 && (f.make ?? '').trim().length > 0 && (f.model ?? '').trim().length > 0;
+  }
+
+  sendUnknownSkillQuery(): void {
+    if (!this.canSendUnknownSkill()) return;
+    const f = this.unknownSkillForm;
+    this.unknownSkillPhotoUploadError = null;
+
+    if (f.imageData) {
+      const file = this.dataUrlToFile(f.imageData, 'skill-photo.jpg');
+      this.unknownSkillPhotoUploading = true;
+      this.cdr.markForCheck();
+      this.validator.uploadSkillPhoto(file, this.skillPhotosFolder).subscribe({
+        next: (result) => {
+          this.unknownSkillPhotoUploading = false;
+          this.unknownSkillPhotoUploadError = null;
+          this.addSkillQueryEntry(f, result.id);
+          this.closeUnknownSkillDialog();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.unknownSkillPhotoUploading = false;
+          this.unknownSkillPhotoUploadError = err?.message || err?.error?.error || 'Upload failed';
+          this.cdr.markForCheck();
+        }
+      });
+      return;
+    }
+
+    this.addSkillQueryEntry(f, undefined);
+    this.closeUnknownSkillDialog();
+    this.cdr.markForCheck();
+  }
+
+  private dataUrlToFile(dataUrl: string, fileName: string): File {
+    const arr = dataUrl.split(',');
+    const mime = (arr[0].match(/:(.*?);/) || [])[1] || 'image/jpeg';
+    const bstr = atob(arr[1] || '');
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new File([u8arr], fileName, { type: mime });
+  }
+
+  private addSkillQueryEntry(f: typeof this.unknownSkillForm, imageDriveItemId: string | undefined): void {
+    const id = this.nextSkillQueryId++;
+    this.skillQueries = [
+      ...this.skillQueries,
+      {
+        id,
+        customer: this.testingCustomer.trim(),
+        site: this.testingSite.trim(),
+        user: this.testingUser.trim(),
+        assetId: (f.assetId ?? '').trim(),
+        skillName: this.unknownSkillDialogSkill,
+        make: (f.make ?? '').trim(),
+        model: (f.model ?? '').trim(),
+        attachment: (f.attachment ?? '').trim(),
+        photoUrl: (f.photoUrl ?? '').trim(),
+        ...(imageDriveItemId ? { imageDriveItemId } : {}),
+      },
+    ];
+    this.saveSkillQueriesToStorage();
+  }
+
+  onUnknownSkillImageDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const file = event.dataTransfer?.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.unknownSkillForm = { ...this.unknownSkillForm, imageData: reader.result as string };
+        this.cdr.markForCheck();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  onUnknownSkillImageDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onUnknownSkillImageFileInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input?.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.unknownSkillForm = { ...this.unknownSkillForm, imageData: reader.result as string };
+        this.cdr.markForCheck();
+      };
+      reader.readAsDataURL(file);
+    }
+    input.value = '';
+  }
+
+  clearUnknownSkillImage(): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, imageData: null };
+    this.cdr.markForCheck();
+  }
+
+  setUnknownSkillMake(value: string): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, make: value };
+    this.cdr.markForCheck();
+  }
+
+  setUnknownSkillModel(value: string): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, model: value };
+    this.cdr.markForCheck();
+  }
+
+  setUnknownSkillAttachment(value: string): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, attachment: value };
+    this.cdr.markForCheck();
+  }
+
+  setUnknownSkillPhotoUrl(value: string): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, photoUrl: value };
+    this.cdr.markForCheck();
+  }
+
+  setUnknownSkillAssetId(value: string): void {
+    this.unknownSkillForm = { ...this.unknownSkillForm, assetId: value };
+    this.cdr.markForCheck();
+  }
+
+  triggerUnknownSkillImageInput(): void {
+    document.getElementById('unknown-skill-image-input')?.click();
   }
 
   openSettings(): void {
     this.settingsApiKeyInput = this.chatGptApiKey;
+    this.settingsSkillPhotosFolderInput = this.skillPhotosFolder;
     this.settingsDialogOpen = true;
   }
 
@@ -141,11 +655,17 @@ export class AppComponent implements OnInit {
 
   saveSettingsAndClose(): void {
     this.chatGptApiKey = this.settingsApiKeyInput.trim();
+    this.skillPhotosFolder = (this.settingsSkillPhotosFolderInput ?? '').trim();
     try {
       if (this.chatGptApiKey) {
         localStorage.setItem(this.CHATGPT_API_KEY_STORAGE, this.chatGptApiKey);
       } else {
         localStorage.removeItem(this.CHATGPT_API_KEY_STORAGE);
+      }
+      if (this.skillPhotosFolder) {
+        localStorage.setItem(this.SKILL_PHOTOS_FOLDER_STORAGE, this.skillPhotosFolder);
+      } else {
+        localStorage.removeItem(this.SKILL_PHOTOS_FOLDER_STORAGE);
       }
     } catch {
       /* ignore */
@@ -157,6 +677,8 @@ export class AppComponent implements OnInit {
   onEscape(): void {
     if (this.settingsDialogOpen) {
       this.closeSettings();
+    } else if (this.unknownSkillDialogOpen) {
+      this.closeUnknownSkillDialog();
     }
   }
 
@@ -633,7 +1155,7 @@ ${lines.join('\n')}`;
   }
 
   getTrainingSkillOptions(): string[] {
-    return this.result?.trainingSheet?.skillOptions ?? [];
+    return this.skillsList.length > 0 ? this.skillsList : (this.result?.trainingSheet?.skillOptions ?? []);
   }
 
   isTrainingEventTypeInvalid(value: string): boolean {
@@ -750,7 +1272,24 @@ ${lines.join('\n')}`;
       const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
       revalidateSheetRows(rows, idLabel);
     }
+    this.revalidateTrainingSheetAgainstSkillsList();
     this.updateSummary();
+  }
+
+  /** When the user has a Skills list (Maintenance), re-validate Training sheet skills against it so imported files use the latest list. */
+  private revalidateTrainingSheetAgainstSkillsList(): void {
+    const training = this.result?.trainingSheet;
+    if (!training?.rows?.length || this.skillsList.length === 0) return;
+    const options = this.getTrainingSkillOptions();
+    const normalizedOptions = options.map(s => (s ?? '').trim().toLowerCase());
+    for (const row of training.rows) {
+      const skillNorm = (row.skill ?? '').trim().toLowerCase();
+      const valid = !skillNorm || normalizedOptions.some(opt => opt === skillNorm);
+      row.skillError = row.skill && !valid ? 'Skill not recognised' : undefined;
+      this.updateTrainingRowValidity(row);
+    }
+    training.valid = training.rows.every(r => r.isValid);
+    this.recomputeTrainingDuplicates();
   }
 
   /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. For field 'nameReversed', pass sheet so we can check confirmation. */

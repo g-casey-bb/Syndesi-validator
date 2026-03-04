@@ -1,35 +1,42 @@
 <div class="app-layout">
   <header class="app-header">
     <div class="app-header-inner">
-      <div class="app-logo">
-        <span class="app-logo-icon" aria-hidden="true">◇</span>
-        <span class="app-logo-text">Syndesi Systems</span>
+      <div class="app-header-left">
+        <div class="app-logo">
+          <span class="app-logo-icon" aria-hidden="true">◇</span>
+          <span class="app-logo-text">Syndesi Systems</span>
+        </div>
+        <nav class="header-nav-tabs" aria-label="Main sections">
+          @for (tab of topLevelTabs; track tab.id) {
+            <button
+              type="button"
+              class="header-tab-btn"
+              [class.active]="topLevelTab === tab.id"
+              (click)="closeMaintenance(); setTopLevelTab(tab.id)"
+            >
+              {{ tab.label }}
+            </button>
+          }
+        </nav>
       </div>
-      <button type="button" class="header-settings-btn" (click)="openSettings()" title="Settings" aria-label="Open settings">
-        Settings
-      </button>
+      <div class="header-actions">
+        <button type="button" class="header-maintenance-btn" (click)="openMaintenance()" title="Maintenance" aria-label="Open maintenance">
+          Maintenance
+        </button>
+        <button type="button" class="header-settings-btn" (click)="openSettings()" title="Settings" aria-label="Open settings">
+          Settings
+        </button>
+      </div>
     </div>
   </header>
 
+  @if (!maintenancePageOpen) {
   <main class="app-main">
     <div class="container">
       <header class="page-header">
-        <h1>Upload Validator</h1>
-        <p class="subtitle">Upload an Excel file of Employees to check whether all data is valid.</p>
+        <h1>{{ topLevelTab }}</h1>
+        <p class="subtitle">Upload an Excel file of {{ topLevelTab }} to import and verify.</p>
       </header>
-
-      <nav class="tabs tabs-top" aria-label="Main sections">
-        @for (tab of topLevelTabs; track tab.id) {
-          <button
-            type="button"
-            class="tab-btn"
-            [class.active]="topLevelTab === tab.id"
-            (click)="setTopLevelTab(tab.id)"
-          >
-            {{ tab.label }}
-          </button>
-        }
-      </nav>
 
       @if (error) {
         <div class="message message-error">{{ error }}</div>
@@ -571,7 +578,7 @@
                           </td>
                           <td class="col-actions">
                             @if (row.skill && isTrainingSkillUnrecognised(row.skill)) {
-                              <button type="button" class="cell-add-skill-btn" title="Add new skill" (click)="addTrainingSkillToFile(training, row)" aria-label="Add new skill">
+                              <button type="button" class="cell-add-skill-btn" title="Add new skill" (click)="openUnknownSkillDialog(row.skill)" aria-label="Add new skill">
                                 <svg class="cell-plus-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/>
                                 </svg>
@@ -616,6 +623,124 @@
       Copyright© Syndesi Systems Limited 2023-2026. All Rights Reserved.
     </div>
   </footer>
+  }
+
+  @if (maintenancePageOpen) {
+  <main class="app-main maintenance-page">
+    <div class="container">
+      <header class="page-header">
+        <h1>Maintenance</h1>
+        <p class="subtitle">Manage Skills and other maintenance tasks.</p>
+      </header>
+
+      <div class="maintenance-tabs">
+        <button type="button" class="maintenance-tab" [class.active]="maintenanceTab === 'Skills'" (click)="maintenanceTab = 'Skills'">Skills</button>
+        <button type="button" class="maintenance-tab" [class.active]="maintenanceTab === 'Testing'" (click)="maintenanceTab = 'Testing'">Testing</button>
+      </div>
+
+      @if (maintenanceTab === 'Testing') {
+      <section class="maintenance-section">
+        <h2>Testing</h2>
+        <p class="maintenance-description">Values saved here are included with each Skill Query and persisted in this browser.</p>
+        <div class="dialog-form-row">
+          <label class="dialog-label" for="testing-customer">Customer</label>
+          <input id="testing-customer" class="dialog-input" type="text" [value]="testingCustomer" (input)="setTestingCustomer($any($event.target).value)" placeholder="Customer" />
+        </div>
+        <div class="dialog-form-row">
+          <label class="dialog-label" for="testing-site">Site</label>
+          <input id="testing-site" class="dialog-input" type="text" [value]="testingSite" (input)="setTestingSite($any($event.target).value)" placeholder="Site" />
+        </div>
+        <div class="dialog-form-row">
+          <label class="dialog-label" for="testing-user">User</label>
+          <input id="testing-user" class="dialog-input" type="text" [value]="testingUser" (input)="setTestingUser($any($event.target).value)" placeholder="User" />
+        </div>
+      </section>
+      }
+
+      @if (maintenanceTab === 'Skills') {
+      <section class="maintenance-section">
+        <h2>Skills</h2>
+        <p class="maintenance-description">Upload a JSON file containing a list of skills. The list is saved to this browser and persists until you clear it.</p>
+        <div class="maintenance-actions">
+          <button type="button" class="btn btn-primary" (click)="skillsFileInput.click()">Upload</button>
+          <input #skillsFileInput id="skills-file-input" type="file" accept=".json,application/json" (change)="onSkillsFileSelected($event)" class="hidden-file-input" />
+          <button type="button" class="btn btn-secondary" (click)="clearSkills()" [disabled]="skillsList.length === 0">Clear</button>
+        </div>
+
+        <div class="maintenance-skills-list">
+          <button type="button" class="maintenance-toggle" (click)="toggleSkillsListExpanded()" [attr.aria-expanded]="skillsListExpanded">
+            {{ skillsListExpanded ? 'Hide Skills' : 'Show Skills' }}
+          </button>
+          @if (skillsListExpanded && skillsList.length > 0) {
+            <div class="maintenance-table-wrap">
+              <table class="maintenance-table skills-list-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Skill name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (skill of skillsList; track $index) {
+                    <tr>
+                      <td>{{ $index + 1 }}</td>
+                      <td>{{ skill }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+          @if (skillsListExpanded && skillsList.length === 0) {
+            <p class="maintenance-empty">No skills in the list. Upload a JSON file to add skills.</p>
+          }
+        </div>
+
+        <h3 class="maintenance-subheading">Skill queries</h3>
+        <p class="maintenance-description">Data sent when you use the + button for an unknown skill in the Training table.</p>
+        @if (skillQueries.length > 0) {
+          <div class="maintenance-table-wrap">
+            <table class="maintenance-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Site</th>
+                  <th>User</th>
+                  <th>For Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (q of skillQueries; track q.id) {
+                  <tr [class.skill-query-row-added]="wasSkillQueryAddedToSkills(q.id)">
+                    <td>{{ q.customer }}</td>
+                    <td>{{ q.site }}</td>
+                    <td>{{ q.user }}</td>
+                    <td>
+                      <a class="maintenance-table-link" (click)="openReviewSkill(q)" role="button" tabindex="0" (keydown.enter)="openReviewSkill(q)" (keydown.space)="openReviewSkill(q); $event.preventDefault()">{{ q.skillName }}</a>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="maintenance-actions" style="margin-top: 0.75rem;">
+            <button type="button" class="btn btn-secondary" (click)="clearAllSkillQueries()">Clear</button>
+          </div>
+        } @else {
+          <p class="maintenance-empty">No skill queries sent yet.</p>
+        }
+      </section>
+      }
+
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="app-footer-inner">
+      Copyright© Syndesi Systems Limited 2023-2026. All Rights Reserved.
+    </div>
+  </footer>
+  }
 
   @if (settingsDialogOpen) {
     <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
@@ -633,10 +758,136 @@
             placeholder="Paste your API key here"
             autocomplete="off"
           />
+          <label class="dialog-label" for="settings-skill-photos-folder">Skill photos folder</label>
+          <input
+            id="settings-skill-photos-folder"
+            type="text"
+            class="dialog-input"
+            [value]="settingsSkillPhotosFolderInput"
+            (input)="settingsSkillPhotosFolderInput = $any($event.target).value"
+            placeholder="OneDrive folder path or ID (e.g. Skills/Photos)"
+            autocomplete="off"
+          />
         </div>
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" (click)="closeSettings()">Cancel</button>
           <button type="button" class="btn btn-primary" (click)="saveSettingsAndClose()">OK</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (unknownSkillDialogOpen) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" [attr.aria-labelledby]="'unknown-skill-dialog-title'">
+      <div class="dialog-backdrop" (click)="closeUnknownSkillDialog()"></div>
+      <div class="dialog-modal dialog-modal-wide" (click)="$event.stopPropagation()">
+        <h2 id="unknown-skill-dialog-title" class="dialog-title">Unknown Skill - {{ unknownSkillDialogSkill }}</h2>
+        <div class="dialog-body">
+          <p class="unknown-skill-intro">Please help us identify this skill by telling us about the asset.</p>
+          <div class="unknown-skill-form">
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="unknown-skill-make">Make:</label>
+              <input id="unknown-skill-make" class="dialog-input" type="text" [value]="unknownSkillForm.make" (input)="setUnknownSkillMake($any($event.target).value)" placeholder="Make" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="unknown-skill-model">Model:</label>
+              <input id="unknown-skill-model" class="dialog-input" type="text" [value]="unknownSkillForm.model" (input)="setUnknownSkillModel($any($event.target).value)" placeholder="Model" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="unknown-skill-asset-id">Asset ID:</label>
+              <input id="unknown-skill-asset-id" class="dialog-input" type="text" [value]="unknownSkillForm.assetId" (input)="setUnknownSkillAssetId($any($event.target).value)" placeholder="Asset ID" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="unknown-skill-attachment">Attachment:</label>
+              <input id="unknown-skill-attachment" class="dialog-input" type="text" [value]="unknownSkillForm.attachment" (input)="setUnknownSkillAttachment($any($event.target).value)" placeholder="Attachment" />
+            </div>
+            <div class="unknown-skill-photo-section">
+              <p class="dialog-label">If you can upload a photo, please drag here</p>
+              <div
+                class="unknown-skill-dropzone"
+                (drop)="onUnknownSkillImageDrop($event)"
+                (dragover)="onUnknownSkillImageDragOver($event)"
+                (click)="triggerUnknownSkillImageInput()"
+                role="button"
+                tabindex="0"
+                (keydown.enter)="triggerUnknownSkillImageInput()"
+              >
+                <input id="unknown-skill-image-input" type="file" accept="image/*" (change)="onUnknownSkillImageFileInput($event)" class="hidden-file-input" />
+                @if (unknownSkillForm.imageData) {
+                  <img [src]="unknownSkillForm.imageData" alt="Uploaded" class="unknown-skill-preview" />
+                  <button type="button" class="btn btn-secondary unknown-skill-clear-img" (click)="clearUnknownSkillImage(); $event.stopPropagation()">Remove image</button>
+                } @else {
+                  <span class="unknown-skill-dropzone-text">Drop image or click to browse</span>
+                }
+              </div>
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="unknown-skill-url">If you have a photo URL, please enter here</label>
+              <input id="unknown-skill-url" class="dialog-input" type="url" [value]="unknownSkillForm.photoUrl" (input)="setUnknownSkillPhotoUrl($any($event.target).value)" placeholder="https://..." />
+            </div>
+            @if (unknownSkillPhotoUploadError) {
+              <p class="unknown-skill-upload-error">{{ unknownSkillPhotoUploadError }}</p>
+            }
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeUnknownSkillDialog()" [disabled]="unknownSkillPhotoUploading">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="sendUnknownSkillQuery()" [disabled]="!canSendUnknownSkill() || unknownSkillPhotoUploading">
+            {{ unknownSkillPhotoUploading ? 'Uploading...' : 'Send' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (reviewSkillQuery) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="review-skill-dialog-title">
+      <div class="dialog-backdrop" (click)="closeReviewSkill()"></div>
+      <div class="dialog-modal dialog-modal-wide" (click)="$event.stopPropagation()">
+        <h2 id="review-skill-dialog-title" class="dialog-title">Review Skill – Query #{{ reviewSkillQuery.id }}</h2>
+        <div class="dialog-body">
+          <div class="unknown-skill-form">
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-name">Skill Name:</label>
+              <input id="review-skill-name" class="dialog-input" type="text" [value]="reviewSkillForm.skillName" (input)="setReviewSkillFormSkillName($any($event.target).value)" placeholder="Skill Name" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-make">Make:</label>
+              <input id="review-skill-make" class="dialog-input" type="text" [value]="reviewSkillForm.make" (input)="setReviewSkillFormMake($any($event.target).value)" placeholder="Make" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-model">Model:</label>
+              <input id="review-skill-model" class="dialog-input" type="text" [value]="reviewSkillForm.model" (input)="setReviewSkillFormModel($any($event.target).value)" placeholder="Model" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-asset-id">Asset ID:</label>
+              <input id="review-skill-asset-id" class="dialog-input" type="text" [value]="reviewSkillForm.assetId" (input)="setReviewSkillFormAssetId($any($event.target).value)" placeholder="Asset ID" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-attachment">Attachment:</label>
+              <input id="review-skill-attachment" class="dialog-input" type="text" [value]="reviewSkillForm.attachment" (input)="setReviewSkillFormAttachment($any($event.target).value)" placeholder="Attachment" />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label" for="review-skill-photo-url">Photo URL:</label>
+              <input id="review-skill-photo-url" class="dialog-input" type="url" [value]="reviewSkillForm.photoUrl" (input)="setReviewSkillFormPhotoUrl($any($event.target).value)" placeholder="https://..." />
+            </div>
+            <div class="dialog-form-row">
+              <label class="dialog-label">Image</label>
+              <div>
+                @if (reviewSkillQuery.photoUrl) {
+                  <a [href]="reviewSkillQuery.photoUrl" target="_blank" rel="noopener noreferrer" class="maintenance-table-link">{{ reviewSkillQuery.photoUrl }}</a>
+                } @else if (reviewSkillQuery.imageDriveItemId || (reviewSkillQuery.imageData && reviewSkillQuery.imageData.startsWith('data:'))) {
+                  <a [href]="getSkillQueryPhotoUrl(reviewSkillQuery)" target="_blank" rel="noopener noreferrer" class="maintenance-table-link" download>Open uploaded image</a>
+                } @else {
+                  <span>—</span>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeReviewSkill()">Close</button>
+          <button type="button" class="btn btn-primary" (click)="saveReviewSkill()">Add</button>
         </div>
       </div>
     </div>

@@ -16,6 +16,28 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+const skillPhotosDir = path.join(__dirname, 'uploads', 'skill-photos');
+if (!fs.existsSync(skillPhotosDir)) {
+  fs.mkdirSync(skillPhotosDir, { recursive: true });
+}
+
+const skillPhotoIndexPath = path.join(skillPhotosDir, 'index.json');
+function loadSkillPhotoIndex() {
+  try {
+    if (fs.existsSync(skillPhotoIndexPath)) {
+      const raw = fs.readFileSync(skillPhotoIndexPath, 'utf8');
+      const data = JSON.parse(raw);
+      return typeof data === 'object' && data !== null ? data : {};
+    }
+  } catch (e) { /* ignore */ }
+  return {};
+}
+function saveSkillPhotoIndex(index) {
+  try {
+    fs.writeFileSync(skillPhotoIndexPath, JSON.stringify(index, null, 2), 'utf8');
+  } catch (e) { /* ignore */ }
+}
+
 /** Load skill name mapping: input skill name -> display name. Keys normalized to lowercase for lookup. Returns display options for dropdown (unique, sorted). */
 function loadTrainingSkillMap() {
   const p = path.join(__dirname, '..', 'training.json');
@@ -48,6 +70,31 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('Only Excel files (.xlsx, .xls) are allowed'));
+    }
+  }
+});
+
+function generateSkillPhotoId() {
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 11);
+}
+
+const skillPhotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, skillPhotosDir),
+  filename: (req, file, cb) => {
+    const id = generateSkillPhotoId();
+    const ext = (path.extname(file.originalname) || '').toLowerCase() || '.jpg';
+    cb(null, id + ext);
+  }
+});
+
+const skillPhotoUpload = multer({
+  storage: skillPhotoStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
     }
   }
 });
@@ -1139,6 +1186,134 @@ app.post('/api/correct-export', upload.single('file'), (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+/** Exists so clients can verify skill-photo API is available (returns 200). Use POST /api/skill-photo/upload to upload. */
+app.get('/api/skill-photo', (req, res) => {
+  res.json({ status: 'ok', message: 'Use POST /api/skill-photo/upload to upload a photo' });
+});
+
+/** Upload a skill photo (image). Body: multipart file (image), folder (optional, for future OneDrive path). Returns { id } for use with download. */
+app.post('/api/skill-photo/upload', skillPhotoUpload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  const folder = (req.body && req.body.folder != null) ? String(req.body.folder).trim() : '';
+  const tenantId = process.env.ONEDRIVE_TENANT_ID;
+  const clientId = process.env.ONEDRIVE_CLIENT_ID;
+  const clientSecret = process.env.ONEDRIVE_CLIENT_SECRET;
+  const driveId = process.env.ONEDRIVE_DRIVE_ID;
+  const useOneDrive = tenantId && clientId && clientSecret && driveId && folder;
+
+  if (useOneDrive) {
+    try {
+      const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          scope: 'https://graph.microsoft.com/.default',
+          grant_type: 'client_credentials'
+        })
+      });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error('Token: ' + errText);
+      }
+      const tokenData = await tokenRes.json();
+      const accessToken = tokenData.access_token;
+      const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_') || 'image.jpg';
+      const folderPath = folder.replace(/\\/g, '/').replace(/^\/+/, '');
+      const graphPath = folderPath ? `root:/${folderPath}/${safeName}:/content` : `root:/${safeName}:/content`;
+      const graphUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/${graphPath}`;
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadRes = await fetch(graphUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': req.file.mimetype || 'application/octet-stream'
+        },
+        body: fileBuffer
+      });
+      fs.unlink(req.file.path, () => {});
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        throw new Error('Graph: ' + errText);
+      }
+      const item = await uploadRes.json();
+      const itemId = item && item.id;
+      if (!itemId) throw new Error('No item id in response');
+      return res.json({ id: itemId });
+    } catch (err) {
+      if (fs.existsSync(req.file.path)) fs.unlink(req.file.path, () => {});
+      console.error('OneDrive upload failed, falling back to local:', err.message);
+    }
+  }
+
+  const id = req.file.filename;
+  const index = loadSkillPhotoIndex();
+  index[id] = { path: req.file.path, originalName: req.file.originalname };
+  saveSkillPhotoIndex(index);
+  res.json({ id: 'local:' + id });
+});
+
+/** Download a skill photo by id. Id is either "local:filename" (local file) or a OneDrive drive item id. */
+app.get('/api/skill-photo/download/:id', async (req, res) => {
+  const id = (req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+
+  if (id.startsWith('local:')) {
+    const filename = id.slice(6).trim();
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+    const filePath = path.join(skillPhotosDir, filename);
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+    const index = loadSkillPhotoIndex();
+    const originalName = (index[filename] && index[filename].originalName) || filename;
+    res.setHeader('Content-Disposition', `attachment; filename="${originalName}"`);
+    const ext = path.extname(filename).toLowerCase();
+    const mime = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' }[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    return res.sendFile(filePath);
+  }
+
+  const tenantId = process.env.ONEDRIVE_TENANT_ID;
+  const clientId = process.env.ONEDRIVE_CLIENT_ID;
+  const clientSecret = process.env.ONEDRIVE_CLIENT_SECRET;
+  const driveId = process.env.ONEDRIVE_DRIVE_ID;
+  if (!tenantId || !clientId || !clientSecret || !driveId) {
+    return res.status(404).json({ error: 'Photo not found' });
+  }
+  try {
+    const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: 'https://graph.microsoft.com/.default',
+        grant_type: 'client_credentials'
+      })
+    });
+    if (!tokenRes.ok) throw new Error('Token failed');
+    const tokenData = await tokenRes.json();
+    const graphRes = await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${id}/content`, {
+      headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+    });
+    if (!graphRes.ok) return res.status(404).json({ error: 'Photo not found' });
+    const contentType = graphRes.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', 'attachment');
+    const buf = await graphRes.arrayBuffer();
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    console.error('OneDrive download error:', err.message);
+    res.status(500).json({ error: 'Failed to download photo' });
+  }
 });
 
 /** Add a new skill to training.json so it becomes a valid selection. Body: { skill: string }. */

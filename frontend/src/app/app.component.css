@@ -21,6 +21,41 @@
   min-height: 52px;
 }
 
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.header-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: 1.5rem;
+}
+
+.header-tab-btn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  border: none;
+  border-radius: var(--syndesi-radius);
+  cursor: pointer;
+  font-family: var(--syndesi-font);
+}
+
+.header-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.header-tab-btn.active {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
 .header-settings-btn {
   padding: 0.4rem 0.75rem;
   font-size: 0.875rem;
@@ -35,6 +70,209 @@
 
 .header-settings-btn:hover {
   background: rgba(255, 255, 255, 0.25);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.header-maintenance-btn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--syndesi-radius);
+  cursor: pointer;
+  font-family: var(--syndesi-font);
+}
+
+.header-maintenance-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Maintenance page */
+.maintenance-page .page-header {
+  margin-bottom: 1.5rem;
+}
+
+.maintenance-section {
+  margin-bottom: 2rem;
+}
+
+.maintenance-section h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: var(--syndesi-text);
+}
+
+.maintenance-description {
+  margin: 0 0 1rem 0;
+  color: var(--syndesi-text-muted);
+  font-size: 0.9rem;
+}
+
+.maintenance-subheading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem 0;
+  color: var(--syndesi-text);
+}
+
+.maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.maintenance-upload {
+  min-width: 280px;
+}
+
+.maintenance-upload .upload-label {
+  padding: 0.75rem 1rem;
+}
+
+.maintenance-skills-list {
+  border: 1px solid var(--syndesi-border);
+  border-radius: var(--syndesi-radius);
+  padding: 1rem;
+  background: var(--syndesi-surface);
+}
+
+.maintenance-toggle {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--syndesi-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  font-family: var(--syndesi-font);
+}
+
+.maintenance-toggle:hover {
+  text-decoration: underline;
+}
+
+.skills-list {
+  margin: 0.75rem 0 0 0;
+  padding-left: 1.5rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.skills-list li {
+  margin-bottom: 0.25rem;
+  color: var(--syndesi-text);
+}
+
+.maintenance-empty {
+  margin: 0.75rem 0 0 0;
+  color: var(--syndesi-text-muted);
+  font-size: 0.9rem;
+}
+
+.maintenance-back {
+  margin-top: 1.5rem;
+}
+
+.maintenance-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--syndesi-border);
+  margin-bottom: 1rem;
+}
+.maintenance-tab {
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--syndesi-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.maintenance-tab:hover { color: var(--syndesi-text); }
+.maintenance-tab.active {
+  color: var(--syndesi-primary);
+  border-bottom-color: var(--syndesi-primary);
+}
+
+.maintenance-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+}
+
+.maintenance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.maintenance-table th,
+.maintenance-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border: 1px solid var(--syndesi-border);
+}
+
+.maintenance-table th {
+  background: var(--syndesi-bg);
+  font-weight: 600;
+  color: var(--syndesi-text);
+}
+
+.maintenance-table td {
+  color: var(--syndesi-text);
+}
+
+.maintenance-table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.maintenance-table-input {
+  width: 100%;
+  min-width: 80px;
+  padding: 0.35rem 0.5rem;
+  font-size: inherit;
+  border: 1px solid var(--syndesi-border);
+  border-radius: 4px;
+  background: var(--syndesi-surface);
+  color: var(--syndesi-text);
+}
+.maintenance-table-link {
+  color: var(--syndesi-primary);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.maintenance-table-link:hover { text-decoration: none; }
+.maintenance-add-skill-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  border: 1px solid var(--syndesi-border);
+  border-radius: 4px;
+  background: var(--syndesi-surface);
+  color: var(--syndesi-primary);
+  cursor: pointer;
+}
+.maintenance-add-skill-btn:hover {
+  background: var(--syndesi-primary);
+  color: var(--syndesi-surface);
+  border-color: var(--syndesi-primary);
+}
+
+.skill-query-row-added {
+  display: none;
 }
 
 /* Settings dialog */
@@ -64,6 +302,11 @@
   max-width: 100%;
 }
 
+.dialog-modal-wide {
+  min-width: 420px;
+  max-width: 96vw;
+}
+
 .dialog-title {
   font-size: 1.15rem;
   font-weight: 600;
@@ -74,6 +317,20 @@
 
 .dialog-body {
   padding: 0 1.25rem 1rem;
+}
+
+.review-skill-dl {
+  margin: 0;
+}
+.review-skill-dl dt {
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.review-skill-dl dt:first-child { margin-top: 0; }
+.review-skill-dl dd {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--syndesi-text);
 }
 
 .dialog-message {
@@ -110,6 +367,94 @@
 
 .dialog-input::placeholder {
   color: var(--syndesi-text-muted);
+}
+
+.unknown-skill-intro {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--syndesi-text);
+  line-height: 1.5;
+}
+
+.unknown-skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dialog-form-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dialog-form-row .dialog-label {
+  flex-shrink: 0;
+  min-width: 6.5rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.dialog-form-row .dialog-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.unknown-skill-photo-section {
+  margin-top: 0.5rem;
+}
+
+.unknown-skill-photo-section .dialog-label {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.9rem;
+}
+
+.unknown-skill-dropzone {
+  border: 2px dashed var(--syndesi-border);
+  border-radius: var(--syndesi-radius);
+  padding: 1rem;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  background: var(--syndesi-bg);
+}
+
+.unknown-skill-dropzone:hover {
+  border-color: var(--syndesi-primary);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.unknown-skill-dropzone-text {
+  font-size: 0.875rem;
+  color: var(--syndesi-text-muted);
+}
+
+.unknown-skill-preview {
+  max-width: 120px;
+  max-height: 80px;
+  object-fit: contain;
+  margin-right: 0.5rem;
+}
+
+.unknown-skill-clear-img {
+  flex-shrink: 0;
+}
+
+.unknown-skill-upload-error {
+  color: var(--syndesi-error, #c00);
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
 }
 
 .dialog-actions {
