@@ -56,7 +56,59 @@
         </div>
         @if (currentPageState.employeesSubTab === 'Import') {
           <section class="upload-section">
-            @if (currentPageState.excelPreviewHtml) {
+            @if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
+              @if (!currentPageState.excelPreviewHtml) {
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-employees">Select which sheet to import</label>
+                  <select id="sheet-select-employees" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+                <p class="preview-loading">Loading preview…</p>
+              } @else {
+                @if (columnMappingByColumn.length) {
+                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
+                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
+                      @for (cell of previewMappingCells; track $index) {
+                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
+                      }
+                    </div>
+                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
+                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
+                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
+                        @for (cell of previewMappingCells; track $index) {
+                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="preview-wrap">
+                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+                  </div>
+                }
+                <div class="actions">
+                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
+                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                  </button>
+                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+                </div>
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-employees">Change to another sheet</label>
+                  <select id="sheet-select-employees" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+              }
+            } @else if (currentPageState.excelPreviewHtml) {
               <div class="preview-wrap">
                 <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
               </div>
@@ -66,8 +118,6 @@
                 </button>
                 <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
               </div>
-            } @else if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
             } @else {
               <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
                 <input id="file-input" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
@@ -140,9 +190,9 @@
                     </tr>
                   </thead>
                   <tbody>
-                    @for (row of getFilteredEmployeeRows(sheet, currentPageState.employeeTabShowOnlyInvalid); track row.rowIndex) {
+                    @for (row of getFilteredEmployeeRows(sheet, currentPageState.employeeTabShowOnlyInvalid, currentPageState.employeeTabFilterInvalidRowIndices); track row.rowIndex) {
                       <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))" [class.cell-overlay-error]="hasValidationError(sheet, row, 'employeeId')">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellTooltip(row, 'employeeId', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'employeeId')) {
@@ -156,7 +206,7 @@
                             }
                           </div>
                         </td>
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" [class.cell-overlay-error]="hasValidationError(sheet, row, 'firstName')" [class.cell-overlay-reversed]="!hasValidationError(sheet, row, 'firstName') && hasReversedWarning(sheet, row)">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
@@ -170,7 +220,7 @@
                             }
                           </div>
                         </td>
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" [class.cell-overlay-error]="hasValidationError(sheet, row, 'lastName')" [class.cell-overlay-reversed]="!hasValidationError(sheet, row, 'lastName') && hasReversedWarning(sheet, row)">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
@@ -184,7 +234,7 @@
                             }
                           </div>
                         </td>
-                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))">
+                        <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))" [class.cell-overlay-error]="hasValidationError(sheet, row, 'email')">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
@@ -280,7 +330,59 @@
         </div>
         @if (currentPageState.agencySubTab === 'Import') {
           <section class="upload-section">
-            @if (currentPageState.excelPreviewHtml) {
+            @if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
+              @if (!currentPageState.excelPreviewHtml) {
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-agency">Select which sheet to import</label>
+                  <select id="sheet-select-agency" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+                <p class="preview-loading">Loading preview…</p>
+              } @else {
+                @if (columnMappingByColumn.length) {
+                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
+                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
+                      @for (cell of previewMappingCells; track $index) {
+                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
+                      }
+                    </div>
+                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
+                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
+                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
+                        @for (cell of previewMappingCells; track $index) {
+                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="preview-wrap">
+                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+                  </div>
+                }
+                <div class="actions">
+                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
+                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                  </button>
+                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+                </div>
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-agency">Change to another sheet</label>
+                  <select id="sheet-select-agency" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+              }
+            } @else if (currentPageState.excelPreviewHtml) {
               <div class="preview-wrap">
                 <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
               </div>
@@ -290,8 +392,6 @@
                 </button>
                 <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
               </div>
-            } @else if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
             } @else {
               <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
                 <input id="file-input-agency" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
@@ -355,9 +455,9 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of getFilteredEmployeeRows(sheet, currentPageState.agencyTabShowOnlyInvalid); track row.rowIndex) {
+                  @for (row of getFilteredEmployeeRows(sheet, currentPageState.agencyTabShowOnlyInvalid, currentPageState.agencyTabFilterInvalidRowIndices); track row.rowIndex) {
                     <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))" [class.cell-overlay-error]="hasValidationError(sheet, row, 'employeeId')">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellTooltip(row, 'employeeId', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'employeeId')) {
@@ -367,7 +467,7 @@
                           }
                         </div>
                       </td>
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'firstName') ? null : getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" [class.cell-overlay-error]="hasValidationError(sheet, row, 'firstName')" [class.cell-overlay-reversed]="!hasValidationError(sheet, row, 'firstName') && hasReversedWarning(sheet, row)">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
@@ -377,7 +477,7 @@
                           }
                         </div>
                       </td>
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'lastName') ? null : getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" [class.cell-overlay-error]="hasValidationError(sheet, row, 'lastName')" [class.cell-overlay-reversed]="!hasValidationError(sheet, row, 'lastName') && hasReversedWarning(sheet, row)">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
@@ -387,7 +487,7 @@
                           }
                         </div>
                       </td>
-                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))">
+                      <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'email') ? null : getCellTooltip(row, 'email', getIdLabel(sheet))" [class.cell-overlay-error]="hasValidationError(sheet, row, 'email')">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
@@ -461,18 +561,86 @@
         </div>
         @if (currentPageState.trainingSubTab === 'Import') {
           <section class="upload-section">
-            @if (currentPageState.excelPreviewHtml) {
-              <div class="preview-wrap">
-                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-              </div>
+            @if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
+              @if (!currentPageState.excelPreviewHtml) {
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-training">Select which sheet to import</label>
+                  <select id="sheet-select-training" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+                <p class="preview-loading">Loading preview…</p>
+              } @else {
+                @if (columnMappingByColumn.length) {
+                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
+                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
+                      @for (cell of previewMappingCells; track $index) {
+                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
+                      }
+                    </div>
+                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
+                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
+                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
+                        @for (cell of previewMappingCells; track $index) {
+                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="preview-wrap">
+                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+                  </div>
+                }
+                <div class="actions">
+                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields to import' }}">
+                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                  </button>
+                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+                </div>
+                <div class="sheet-select-row">
+                  <label class="sheet-select-label" for="sheet-select-training">Change to another sheet</label>
+                  <select id="sheet-select-training" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
+                    <option value="">Select a sheet…</option>
+                    @for (name of currentPageState.excelSheetNames; track name) {
+                      <option [value]="name">{{ name }}</option>
+                    }
+                  </select>
+                </div>
+              }
+            } @else if (currentPageState.excelPreviewHtml) {
+              @if (columnMappingByColumn.length) {
+                <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
+                  <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
+                    @for (cell of previewMappingCells; track $index) {
+                      <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
+                    }
+                  </div>
+                  <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
+                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
+                    <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
+                      @for (cell of previewMappingCells; track $index) {
+                        <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
+                      }
+                    </div>
+                  </div>
+                </div>
+              } @else {
+                <div class="preview-wrap">
+                  <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+                </div>
+              }
               <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields to import' }}">
                   {{ currentPageState.loading ? 'Importing…' : 'Import' }}
                 </button>
                 <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
               </div>
-            } @else if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
             } @else {
               <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
                 <input id="file-input-training" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
@@ -769,35 +937,11 @@
   </footer>
   }
 
-  @if (currentPageState.showSheetSelectDialog) {
-    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="sheet-select-dialog-title">
-      <div class="dialog-backdrop" (click)="closeSheetSelectDialog()"></div>
-      <div class="dialog-modal" (click)="$event.stopPropagation()">
-        <h2 id="sheet-select-dialog-title" class="dialog-title">Select which sheet to import</h2>
-        <div class="dialog-body">
-          <p class="dialog-label">This file contains multiple sheets. Choose the sheet to use for preview and import.</p>
-          <div class="dialog-form-row">
-            <label class="dialog-label" for="sheet-select-dropdown">Sheet</label>
-            <select id="sheet-select-dropdown" class="dialog-input cell-select" [value]="currentPageState.selectedSheetName" (change)="currentPageState.selectedSheetName = $any($event.target).value">
-              @for (name of currentPageState.excelSheetNames; track name) {
-                <option [value]="name">{{ name }}</option>
-              }
-            </select>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button type="button" class="btn btn-secondary" (click)="closeSheetSelectDialog()">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="confirmSheetSelection()">Use this sheet</button>
-        </div>
-      </div>
-    </div>
-  }
-
   @if (currentPageState.showColumnMappingDialog && currentColumnMappingColumn; as col) {
     <div class="dialog-overlay" role="dialog" aria-modal="true" [attr.aria-labelledby]="'column-mapping-dialog-title'">
       <div class="dialog-backdrop" (click)="closeColumnMappingDialog()"></div>
       <div class="dialog-modal" (click)="$event.stopPropagation()">
-        <h2 id="column-mapping-dialog-title" class="dialog-title">Assign Fields ({{ currentPageState.columnMappingDialogPage + 1 }} of {{ columnMappingColumns.length }})</h2>
+        <h2 id="column-mapping-dialog-title" class="dialog-title">Assign Fields ({{ currentPageState.columnMappingDialogPage + 1 }} of {{ columnMappingColumnsForPage.length }})</h2>
         <div class="dialog-body">
           <p class="dialog-label">Please select the column in your Excel that is for {{ col.label }}.</p>
           <div class="dialog-form-row">
@@ -817,7 +961,7 @@
         </div>
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" (click)="columnMappingPrev()" [disabled]="currentPageState.columnMappingDialogPage === 0">Back</button>
-          @if (currentPageState.columnMappingDialogPage < columnMappingColumns.length - 1) {
+          @if (currentPageState.columnMappingDialogPage < columnMappingColumnsForPage.length - 1) {
             <button type="button" class="btn btn-primary" (click)="columnMappingNext()" [disabled]="!canColumnMappingGoNext">{{ columnMappingNextButtonLabel }}</button>
           } @else {
             <button type="button" class="btn btn-primary" (click)="closeColumnMappingDialog()" [disabled]="!canColumnMappingGoNext">Done</button>

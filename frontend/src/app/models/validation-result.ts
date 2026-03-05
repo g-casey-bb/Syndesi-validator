@@ -111,6 +111,7 @@ export interface TrainingRow {
   testDateRaw: string;
   result: string;
   employeeId: string;
+  dueDate?: string;
   isValid: boolean;
   comment?: string;
   missingFields?: string[];

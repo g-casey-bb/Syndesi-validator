@@ -6,7 +6,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
 import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
-import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey, COLUMN_MAPPING_COLUMNS, ColumnMappingKey, ExcelColumnOption } from './models/page-import-state';
+import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey, COLUMN_MAPPING_COLUMNS, COLUMN_MAPPING_COLUMNS_TRAINING, ColumnMappingKey, TrainingColumnMappingKey, ExcelColumnOption } from './models/page-import-state';
 import * as XLSX from 'xlsx';
 
 @Component({
@@ -76,10 +76,49 @@ export class AppComponent implements OnInit {
     ];
   }
 
-  /** Safe HTML for iframe srcdoc (Excel preview) for current page. */
+  /** Safe HTML for iframe srcdoc (Excel preview) for current page. Cached to avoid new SafeHtml on every CD and iframe reload flicker. */
+  private _cachedPreviewHtml: string | null = null;
+  private _cachedSanitizedPreview: SafeHtml | null = null;
   get sanitizedExcelPreview(): SafeHtml | null {
     const html = this.currentPageState.excelPreviewHtml;
-    return html ? this.sanitizer.bypassSecurityTrustHtml(html) : null;
+    if (html === this._cachedPreviewHtml) return this._cachedSanitizedPreview;
+    this._cachedPreviewHtml = html;
+    this._cachedSanitizedPreview = html ? this.sanitizer.bypassSecurityTrustHtml(html) : null;
+    return this._cachedSanitizedPreview;
+  }
+
+  /** Column widths (px) measured from the preview table; used so mapping row and overlay match iframe columns. */
+  previewColumnWidths: number[] = [];
+
+  /** Sum of previewColumnWidths for min-width. */
+  get previewTableTotalWidth(): number {
+    return this.previewColumnWidths.length ? this.previewColumnWidths.reduce((a, b) => a + b, 0) : 0;
+  }
+
+  /** CSS grid-template-columns from measured widths, or fallback to equal 1fr. */
+  get previewMappingGridColumns(): string {
+    const n = this.previewMappingCells.length;
+    if (n && this.previewColumnWidths.length === n) {
+      return this.previewColumnWidths.map(w => w + 'px').join(' ');
+    }
+    return n ? `repeat(${n}, 1fr)` : '1fr';
+  }
+
+  /** Called when the preview iframe has loaded; measure table column widths. */
+  onPreviewIframeLoad(ev: Event): void {
+    const iframe = ev?.target as HTMLIFrameElement | null;
+    if (!iframe?.contentDocument) return;
+    const table = iframe.contentDocument.getElementById('excel-preview-table') as HTMLTableElement | null;
+    if (!table?.rows?.length) return;
+    const firstRow = table.rows[0];
+    const widths: number[] = [];
+    for (let i = 0; i < firstRow.cells.length; i++) {
+      widths.push((firstRow.cells[i] as HTMLTableCellElement).offsetWidth);
+    }
+    if (widths.length > 0) {
+      this.previewColumnWidths = widths;
+      this.cdr.markForCheck();
+    }
   }
 
   /** Path for a page (for routerLink). */
@@ -869,11 +908,9 @@ ${lines.join('\n')}`;
             this.currentPageState.excelPreviewHtml = '<p>No sheets in workbook.</p>';
             this.currentPageState.selectedSheetName = null;
           } else if (names.length === 1) {
-            this.currentPageState.selectedSheetName = names[0];
-            this.buildExcelPreview(file, names[0]);
+            this.currentPageState.selectedSheetName = null;
           } else {
-            this.currentPageState.showSheetSelectDialog = true;
-            this.currentPageState.selectedSheetName = names[0];
+            this.currentPageState.selectedSheetName = null;
           }
           this.cdr.markForCheck();
         } catch (e) {
@@ -893,7 +930,23 @@ ${lines.join('\n')}`;
     }
   }
 
-  /** Confirm selected sheet from dialog and build preview. */
+  /** Called when user changes the sheet dropdown; rebuilds preview for the selected sheet. */
+  onSheetChange(sheetName: string): void {
+    if (!this.currentPageState.selectedFile) return;
+    const name = (sheetName ?? '').trim();
+    this.currentPageState.selectedSheetName = name || null;
+    if (!name) {
+      this.currentPageState.excelPreviewHtml = null;
+      this.currentPageState.previewLoading = false;
+      this.previewColumnWidths = [];
+      this.cdr.markForCheck();
+      return;
+    }
+    this.currentPageState.previewLoading = true;
+    this.buildExcelPreview(this.currentPageState.selectedFile, name);
+  }
+
+  /** Confirm selected sheet from dialog and build preview. (Kept for compatibility; dialog removed.) */
   confirmSheetSelection(): void {
     if (!this.currentPageState.selectedFile || !this.currentPageState.selectedSheetName) return;
     this.currentPageState.showSheetSelectDialog = false;
@@ -908,32 +961,36 @@ ${lines.join('\n')}`;
 
   /** Parse the Excel file and set excelPreviewHtml for iframe preview; then open column mapping dialog. */
   private buildExcelPreview(file: File, sheetName: string): void {
+    const page = this.topLevelTab;
+    const state = this.pageState[page];
+    state.previewLoading = true;
     file.arrayBuffer().then((ab) => {
       try {
         const wb = XLSX.read(ab, { type: 'array' });
         const ws = wb.Sheets[sheetName];
         if (!ws) {
-          this.currentPageState.excelPreviewHtml = '<p>Sheet not found.</p>';
+          state.excelPreviewHtml = '<p>Sheet not found.</p>';
         } else {
           const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as (string | number)[][];
           const html = XLSX.utils.sheet_to_html(ws, { id: 'excel-preview-table' });
-          this.currentPageState.excelPreviewHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;font:14px/1.4 sans-serif;} th,td{border:1px solid #ccc;padding:4px 8px;} th{background:#eee;}</style></head><body>' + html + '</body></html>';
-          this.currentPageState.excelColumnOptions = this.getColumnsWithData(data);
-          const opts = this.currentPageState.excelColumnOptions;
-          this.currentPageState.columnMapping = {};
-          this.currentPageState.columnMappingDialogPage = 0;
-          this.currentPageState.showColumnMappingDialog = opts.length > 0;
+          state.excelPreviewHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:8px} table{border-collapse:collapse;font:14px/1.4 sans-serif;} th,td{border:1px solid #ccc;padding:4px 8px;} th{background:#eee;}</style></head><body>' + html + '</body></html>';
+          this.previewColumnWidths = [];
+          state.excelColumnOptions = this.getColumnsWithData(data);
+          const opts = state.excelColumnOptions;
+          state.columnMapping = {};
+          state.columnMappingDialogPage = 0;
+          state.showColumnMappingDialog = opts.length > 0;
         }
       } catch (e) {
-        this.currentPageState.excelPreviewHtml = '<p>Could not parse Excel file.</p>';
-        this.currentPageState.error = 'Could not preview file.';
+        state.excelPreviewHtml = '<p>Could not parse Excel file.</p>';
+        state.error = 'Could not preview file.';
       }
-      this.currentPageState.previewLoading = false;
+      state.previewLoading = false;
       this.cdr.markForCheck();
     }).catch(() => {
-      this.currentPageState.excelPreviewHtml = null;
-      this.currentPageState.previewLoading = false;
-      this.currentPageState.error = 'Could not read file.';
+      state.excelPreviewHtml = null;
+      state.previewLoading = false;
+      state.error = 'Could not read file.';
       this.cdr.markForCheck();
     });
   }
@@ -961,17 +1018,68 @@ ${lines.join('\n')}`;
   }
 
   readonly columnMappingColumns = COLUMN_MAPPING_COLUMNS;
+  readonly columnMappingColumnsTraining = COLUMN_MAPPING_COLUMNS_TRAINING;
 
-  get currentColumnMappingColumn(): typeof COLUMN_MAPPING_COLUMNS[0] | null {
-    const page = this.currentPageState.columnMappingDialogPage;
-    return this.columnMappingColumns[page] ?? null;
+  /** Columns for the current page's Assign Fields dialog (Training vs Employees/Agency). Uses the page that has the dialog open so the correct fields are shown even if the user switched tabs before the preview loaded. */
+  get columnMappingColumnsForPage(): { key: ColumnMappingKey | TrainingColumnMappingKey; label: string; required: boolean }[] {
+    if (this.pageState['Training'].showColumnMappingDialog) return this.columnMappingColumnsTraining;
+    return this.columnMappingColumns;
   }
 
-  /** True when required column mappings (Employee ID, First Name, Last Name) are all set. Used to enable Import. */
+  get currentColumnMappingColumn(): { key: ColumnMappingKey | TrainingColumnMappingKey; label: string; required: boolean } | null {
+    const page = this.currentPageState.columnMappingDialogPage;
+    return this.columnMappingColumnsForPage[page] ?? null;
+  }
+
+  /** True when required column mappings are all set. Employees/Agency: Employee ID, First Name, Last Name. Training: Skill, Event Type, Test Date, Result, Employee Number. */
   get hasRequiredColumnMapping(): boolean {
     const m = this.currentPageState.columnMapping;
+    if (this.topLevelTab === 'Training') {
+      const keys: TrainingColumnMappingKey[] = ['skill', 'eventType', 'testDate', 'result', 'employeeId'];
+      return keys.every(k => (m[k] ?? '').trim() !== '');
+    }
     const keys: ColumnMappingKey[] = ['employeeId', 'firstName', 'lastName'];
     return keys.every(k => (m[k] ?? '').trim() !== '');
+  }
+
+  /** Mappings to show above the preview: field label and selected Excel column. */
+  get columnMappingSummary(): { key: string; label: string; excelColumn: string }[] {
+    const m = this.currentPageState.columnMapping;
+    return this.columnMappingColumnsForPage
+      .map(col => ({ key: col.key, label: col.label, excelColumn: (m[col.key] ?? '').trim() }))
+      .filter(item => item.excelColumn !== '');
+  }
+
+  /** Per-column mapping for table/overlay: one entry per Excel column index. label = field name if mapped, '' otherwise; mapped = true if green. */
+  get columnMappingByColumn(): { label: string; mapped: boolean }[] {
+    const opts = this.currentPageState.excelColumnOptions;
+    const m = this.currentPageState.columnMapping;
+    if (!opts.length) return [];
+    const numCols = Math.max(...opts.map(o => o.index), 0) + 1;
+    const titleByIndex = new Map(opts.map(o => [o.index, o.title]));
+    const labelByTitle = new Map<string, string>();
+    for (const col of this.columnMappingColumnsForPage) {
+      const title = (m[col.key] ?? '').trim();
+      if (title) labelByTitle.set(title, col.label);
+    }
+    const result: { label: string; mapped: boolean }[] = [];
+    for (let i = 0; i < numCols; i++) {
+      const title = titleByIndex.get(i) ?? '';
+      const label = labelByTitle.get(title) ?? '';
+      result.push({ label, mapped: label !== '' });
+    }
+    return result;
+  }
+
+  /** Same as columnMappingByColumn but length matches measured table columns when available, so mapping row/overlay align with iframe. */
+  get previewMappingCells(): { label: string; mapped: boolean }[] {
+    const byCol = this.columnMappingByColumn;
+    const n = this.previewColumnWidths.length || byCol.length;
+    const out: { label: string; mapped: boolean }[] = [];
+    for (let i = 0; i < n; i++) {
+      out.push(byCol[i] ?? { label: '', mapped: false });
+    }
+    return out;
   }
 
   /** Column options for the current Assign Fields page: only columns not already mapped to a different field (current field's selection is always included). */
@@ -982,7 +1090,7 @@ ${lines.join('\n')}`;
     const mapping = this.currentPageState.columnMapping;
     const currentVal = (mapping[col.key] ?? '').trim();
     const usedByOther = new Set(
-      this.columnMappingColumns
+      this.columnMappingColumnsForPage
         .filter(c => c.key !== col.key)
         .map(c => (mapping[c.key] ?? '').trim())
         .filter(Boolean)
@@ -1009,7 +1117,7 @@ ${lines.join('\n')}`;
   }
 
   columnMappingNext(): void {
-    if (this.currentPageState.columnMappingDialogPage < this.columnMappingColumns.length - 1) {
+    if (this.currentPageState.columnMappingDialogPage < this.columnMappingColumnsForPage.length - 1) {
       this.currentPageState.columnMappingDialogPage++;
       this.cdr.markForCheck();
     } else {
@@ -1024,7 +1132,7 @@ ${lines.join('\n')}`;
     }
   }
 
-  setColumnMappingValue(key: ColumnMappingKey, value: string): void {
+  setColumnMappingValue(key: ColumnMappingKey | TrainingColumnMappingKey, value: string): void {
     this.currentPageState.columnMapping[key] = value;
     this.cdr.markForCheck();
   }
@@ -1044,6 +1152,10 @@ ${lines.join('\n')}`;
     s.nameCheckReversedProbability = {};
     s.nameCheckError = null;
     s.importedFileLabel = null;
+    s.employeeTabShowOnlyInvalid = false;
+    s.agencyTabShowOnlyInvalid = false;
+    s.employeeTabFilterInvalidRowIndices = null;
+    s.agencyTabFilterInvalidRowIndices = null;
     if (this.topLevelTab === 'Employees') s.employeesSubTab = 'Import';
     else if (this.topLevelTab === 'Agency Workers') s.agencySubTab = 'Import';
     else if (this.topLevelTab === 'Training') s.trainingSubTab = 'Import';
@@ -1053,6 +1165,7 @@ ${lines.join('\n')}`;
   /** Remove preview and restore file upload interface. Does not clear result or switch tabs. */
   clearPreview(): void {
     this.currentPageState.excelPreviewHtml = null;
+    this.previewColumnWidths = [];
     this.currentPageState.previewLoading = false;
     this.currentPageState.selectedFile = null;
     this.currentPageState.selectedSheetName = null;
@@ -1087,6 +1200,8 @@ ${lines.join('\n')}`;
     this.currentPageState.nameCheckError = null;
     this.currentPageState.employeeTabShowOnlyInvalid = false;
     this.currentPageState.agencyTabShowOnlyInvalid = false;
+    this.currentPageState.employeeTabFilterInvalidRowIndices = null;
+    this.currentPageState.agencyTabFilterInvalidRowIndices = null;
     this.currentPageState.trainingShowOnlyInvalid = false;
 
     const sheetType = this.topLevelTab === 'Training' ? 'training' : 'employees';
@@ -1140,6 +1255,10 @@ ${lines.join('\n')}`;
     s.confirmedCells = {};
     s.nameCheckReversedProbability = {};
     s.nameCheckError = null;
+    s.employeeTabShowOnlyInvalid = false;
+    s.agencyTabShowOnlyInvalid = false;
+    s.employeeTabFilterInvalidRowIndices = null;
+    s.agencyTabFilterInvalidRowIndices = null;
     s.employeesSubTab = 'Import';
     s.agencySubTab = 'Import';
     s.trainingSubTab = 'Import';
@@ -1251,11 +1370,37 @@ ${lines.join('\n')}`;
 
   toggleEmployeeTabShowFilter(): void {
     this.currentPageState.employeeTabShowOnlyInvalid = !this.currentPageState.employeeTabShowOnlyInvalid;
+    if (this.currentPageState.employeeTabShowOnlyInvalid) {
+      const sheet = this.getEmployeeSheet();
+      if (sheet?.rows?.length) {
+        const idLabel = this.getIdLabel(sheet);
+        this.currentPageState.employeeTabFilterInvalidRowIndices = sheet.rows
+          .filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel))
+          .map(r => r.rowIndex);
+      } else {
+        this.currentPageState.employeeTabFilterInvalidRowIndices = [];
+      }
+    } else {
+      this.currentPageState.employeeTabFilterInvalidRowIndices = null;
+    }
     this.cdr.markForCheck();
   }
 
   toggleAgencyTabShowFilter(): void {
     this.currentPageState.agencyTabShowOnlyInvalid = !this.currentPageState.agencyTabShowOnlyInvalid;
+    if (this.currentPageState.agencyTabShowOnlyInvalid) {
+      const sheet = this.getAgencySheet();
+      if (sheet?.rows?.length) {
+        const idLabel = this.getIdLabel(sheet);
+        this.currentPageState.agencyTabFilterInvalidRowIndices = sheet.rows
+          .filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel))
+          .map(r => r.rowIndex);
+      } else {
+        this.currentPageState.agencyTabFilterInvalidRowIndices = [];
+      }
+    } else {
+      this.currentPageState.agencyTabFilterInvalidRowIndices = null;
+    }
     this.cdr.markForCheck();
   }
 
@@ -1593,6 +1738,17 @@ ${lines.join('\n')}`;
     return tip && !this.isCellConfirmed(sheet.name, row.rowIndex, field) ? tip : null;
   }
 
+  /** True when this cell has a validation error (not the reversed-name warning) and is not confirmed. Used for red overlay. */
+  hasValidationError(sheet: { name: string; employeeIdentifierColumnLabel?: string }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email'): boolean {
+    const tip = this.getCellTooltip(row, field, this.getIdLabel(sheet));
+    return tip != null && !this.isCellConfirmed(sheet.name, row.rowIndex, field);
+  }
+
+  /** True when the reversed-name check flags this row and it is not confirmed. Used for yellow overlay on first/last name cells. */
+  hasReversedWarning(sheet: { name: string }, row: ValidationRow): boolean {
+    return this.isNameReversedWarning(sheet.name, row.rowIndex) && !this.isCellConfirmed(sheet.name, row.rowIndex, 'nameReversed');
+  }
+
   /** True when this cell should show the confirm button (has error but not a space error). Do not show for empty required fields. For nameReversed pass sheet. */
   showConfirmButton(row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed', idLabel: string, sheet?: { name: string }): boolean {
     if (field === 'nameReversed') return sheet ? this.getCellTooltip(row, 'nameReversed', idLabel, sheet) != null : false;
@@ -1666,9 +1822,13 @@ ${lines.join('\n')}`;
     });
   }
 
-  getFilteredEmployeeRows(sheet: { name: string; rows?: ValidationRow[]; employeeIdentifierColumnLabel?: string }, showOnlyInvalid: boolean): ValidationRow[] {
+  getFilteredEmployeeRows(sheet: { name: string; rows?: ValidationRow[]; employeeIdentifierColumnLabel?: string }, showOnlyInvalid: boolean, filterRowIndices?: number[] | null): ValidationRow[] {
     const sorted = this.getSortedRows(sheet);
     if (!showOnlyInvalid) return sorted;
+    if (filterRowIndices != null && Array.isArray(filterRowIndices)) {
+      const set = new Set(filterRowIndices);
+      return sorted.filter(row => set.has(row.rowIndex));
+    }
     const idLabel = this.getIdLabel(sheet);
     return sorted.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel));
   }

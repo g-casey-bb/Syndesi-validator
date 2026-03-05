@@ -921,13 +921,29 @@ function validateWorkbook(buffer, options) {
     const trainingData = XLSX.utils.sheet_to_json(trainingSheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
     if (trainingData && trainingData.length >= 2) {
       const headers = trainingData[0].map(h => (h != null ? String(h) : ''));
-      const skillIdx = findColumnIndexStartsWith(headers, 'skill');
-      const eventTypeIdx = findColumnIndex(headers, 'Event Type', 'EventType', 'Event type');
-      const testDateIdx = findColumnIndex(headers, 'Test Date', 'TestDate', 'Test date');
-      const resultIdx = findColumnIndex(headers, 'Result');
-      const empNumIdxTraining = findEmployeeNumberIndex(headers);
-      const empIdIdxTraining = findEmployeeIdIndex(headers);
-      const empIdIdx = empNumIdxTraining >= 0 ? empNumIdxTraining : empIdIdxTraining;
+      const useTrainingMapping = singleSheetType === 'training' && columnMapping && typeof columnMapping === 'object' && (
+        columnMapping.skill || columnMapping.eventType || columnMapping.testDate || columnMapping.result || columnMapping.employeeId
+      );
+      const skillIdx = useTrainingMapping && columnMapping.skill
+        ? findColumnIndexByMapping(headers, columnMapping.skill)
+        : findColumnIndexStartsWith(headers, 'skill');
+      const eventTypeIdx = useTrainingMapping && columnMapping.eventType
+        ? findColumnIndexByMapping(headers, columnMapping.eventType)
+        : findColumnIndex(headers, 'Event Type', 'EventType', 'Event type');
+      const testDateIdx = useTrainingMapping && columnMapping.testDate
+        ? findColumnIndexByMapping(headers, columnMapping.testDate)
+        : findColumnIndex(headers, 'Test Date', 'TestDate', 'Test date');
+      const resultIdx = useTrainingMapping && columnMapping.result
+        ? findColumnIndexByMapping(headers, columnMapping.result)
+        : findColumnIndex(headers, 'Result');
+      let empIdIdx = useTrainingMapping && columnMapping.employeeId
+        ? findColumnIndexByMapping(headers, columnMapping.employeeId)
+        : -1;
+      if (empIdIdx < 0) {
+        const empNumIdxTraining = findEmployeeNumberIndex(headers);
+        const empIdIdxTraining = findEmployeeIdIndex(headers);
+        empIdIdx = empNumIdxTraining >= 0 ? empNumIdxTraining : empIdIdxTraining;
+      }
       const trainingRows = [];
       let trainingValid = true;
       for (let i = 1; i < trainingData.length; i++) {
