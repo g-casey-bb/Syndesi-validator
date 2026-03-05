@@ -6,7 +6,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
 import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
-import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey } from './models/page-import-state';
+import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey, COLUMN_MAPPING_COLUMNS, ColumnMappingKey, ExcelColumnOption } from './models/page-import-state';
 import * as XLSX from 'xlsx';
 
 @Component({
@@ -906,7 +906,7 @@ ${lines.join('\n')}`;
     this.clearPreview();
   }
 
-  /** Parse the Excel file and set excelPreviewHtml for iframe preview. */
+  /** Parse the Excel file and set excelPreviewHtml for iframe preview; then open column mapping dialog. */
   private buildExcelPreview(file: File, sheetName: string): void {
     file.arrayBuffer().then((ab) => {
       try {
@@ -915,8 +915,14 @@ ${lines.join('\n')}`;
         if (!ws) {
           this.currentPageState.excelPreviewHtml = '<p>Sheet not found.</p>';
         } else {
+          const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as (string | number)[][];
           const html = XLSX.utils.sheet_to_html(ws, { id: 'excel-preview-table' });
           this.currentPageState.excelPreviewHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;font:14px/1.4 sans-serif;} th,td{border:1px solid #ccc;padding:4px 8px;} th{background:#eee;}</style></head><body>' + html + '</body></html>';
+          this.currentPageState.excelColumnOptions = this.getColumnsWithData(data);
+          const opts = this.currentPageState.excelColumnOptions;
+          this.currentPageState.columnMapping = {};
+          this.currentPageState.columnMappingDialogPage = 0;
+          this.currentPageState.showColumnMappingDialog = opts.length > 0;
         }
       } catch (e) {
         this.currentPageState.excelPreviewHtml = '<p>Could not parse Excel file.</p>';
@@ -932,6 +938,118 @@ ${lines.join('\n')}`;
     });
   }
 
+  /** From sheet data (array of rows), return columns that have at least one non-empty data cell (excluding header). */
+  private getColumnsWithData(data: (string | number)[][]): ExcelColumnOption[] {
+    if (!data || data.length < 2) return [];
+    const headers = data[0].map(c => (c != null ? String(c).trim() : ''));
+    const options: ExcelColumnOption[] = [];
+    for (let col = 0; col < headers.length; col++) {
+      let hasData = false;
+      for (let row = 1; row < data.length; row++) {
+        const cell = data[row][col];
+        if (cell != null && String(cell).trim() !== '') {
+          hasData = true;
+          break;
+        }
+      }
+      if (hasData) {
+        const headerTitle = headers[col] || `Column ${col + 1}`;
+        options.push({ index: col, title: headerTitle || `Column ${col + 1}` });
+      }
+    }
+    return options;
+  }
+
+  readonly columnMappingColumns = COLUMN_MAPPING_COLUMNS;
+
+  get currentColumnMappingColumn(): typeof COLUMN_MAPPING_COLUMNS[0] | null {
+    const page = this.currentPageState.columnMappingDialogPage;
+    return this.columnMappingColumns[page] ?? null;
+  }
+
+  /** True when required column mappings (Employee ID, First Name, Last Name) are all set. Used to enable Import. */
+  get hasRequiredColumnMapping(): boolean {
+    const m = this.currentPageState.columnMapping;
+    const keys: ColumnMappingKey[] = ['employeeId', 'firstName', 'lastName'];
+    return keys.every(k => (m[k] ?? '').trim() !== '');
+  }
+
+  /** Column options for the current Assign Fields page: only columns not already mapped to a different field (current field's selection is always included). */
+  get availableColumnOptionsForMapping(): ExcelColumnOption[] {
+    const col = this.currentColumnMappingColumn;
+    const opts = this.currentPageState.excelColumnOptions;
+    if (!col || !opts.length) return opts;
+    const mapping = this.currentPageState.columnMapping;
+    const currentVal = (mapping[col.key] ?? '').trim();
+    const usedByOther = new Set(
+      this.columnMappingColumns
+        .filter(c => c.key !== col.key)
+        .map(c => (mapping[c.key] ?? '').trim())
+        .filter(Boolean)
+    );
+    return opts.filter(opt => currentVal === opt.title || !usedByOther.has(opt.title));
+  }
+
+  get canColumnMappingGoNext(): boolean {
+    const col = this.currentColumnMappingColumn;
+    if (!col) return false;
+    if (col.required) {
+      const val = this.currentPageState.columnMapping[col.key];
+      return (val ?? '').trim() !== '';
+    }
+    return true;
+  }
+
+  /** On optional pages with nothing selected, show "Skip" instead of "Next". */
+  get columnMappingNextButtonLabel(): string {
+    const col = this.currentColumnMappingColumn;
+    if (!col || col.required) return 'Next';
+    const val = (this.currentPageState.columnMapping[col.key] ?? '').trim();
+    return val === '' ? 'Skip' : 'Next';
+  }
+
+  columnMappingNext(): void {
+    if (this.currentPageState.columnMappingDialogPage < this.columnMappingColumns.length - 1) {
+      this.currentPageState.columnMappingDialogPage++;
+      this.cdr.markForCheck();
+    } else {
+      this.closeColumnMappingDialog();
+    }
+  }
+
+  columnMappingPrev(): void {
+    if (this.currentPageState.columnMappingDialogPage > 0) {
+      this.currentPageState.columnMappingDialogPage--;
+      this.cdr.markForCheck();
+    }
+  }
+
+  setColumnMappingValue(key: ColumnMappingKey, value: string): void {
+    this.currentPageState.columnMapping[key] = value;
+    this.cdr.markForCheck();
+  }
+
+  closeColumnMappingDialog(): void {
+    this.currentPageState.showColumnMappingDialog = false;
+    this.currentPageState.columnMappingDialogPage = 0;
+    this.cdr.markForCheck();
+  }
+
+  /** Clear all data on the current page's data tab and switch back to Import. */
+  clearCurrentTabData(): void {
+    const s = this.currentPageState;
+    s.result = null;
+    s.rowsToReverse = {};
+    s.confirmedCells = {};
+    s.nameCheckReversedProbability = {};
+    s.nameCheckError = null;
+    s.importedFileLabel = null;
+    if (this.topLevelTab === 'Employees') s.employeesSubTab = 'Import';
+    else if (this.topLevelTab === 'Agency Workers') s.agencySubTab = 'Import';
+    else if (this.topLevelTab === 'Training') s.trainingSubTab = 'Import';
+    this.cdr.markForCheck();
+  }
+
   /** Remove preview and restore file upload interface. Does not clear result or switch tabs. */
   clearPreview(): void {
     this.currentPageState.excelPreviewHtml = null;
@@ -940,6 +1058,10 @@ ${lines.join('\n')}`;
     this.currentPageState.selectedSheetName = null;
     this.currentPageState.excelSheetNames = [];
     this.currentPageState.showSheetSelectDialog = false;
+    this.currentPageState.excelColumnOptions = [];
+    this.currentPageState.columnMapping = {};
+    this.currentPageState.columnMappingDialogPage = 0;
+    this.currentPageState.showColumnMappingDialog = false;
     this.currentPageState.importedFileLabel = null;
     this.currentPageState.error = null;
     const input = document.getElementById('file-input') as HTMLInputElement;
@@ -968,9 +1090,14 @@ ${lines.join('\n')}`;
     this.currentPageState.trainingShowOnlyInvalid = false;
 
     const sheetType = this.topLevelTab === 'Training' ? 'training' : 'employees';
+    const columnMapping = this.currentPageState.columnMapping;
+    const columnMappingFiltered = columnMapping && Object.keys(columnMapping).length > 0
+      ? Object.fromEntries(Object.entries(columnMapping).filter(([, v]) => (v ?? '').trim() !== ''))
+      : undefined;
     this.validator.validateFile(this.currentPageState.selectedFile, {
       sheetName: this.currentPageState.selectedSheetName ?? undefined,
-      sheetType
+      sheetType,
+      columnMapping: columnMappingFiltered
     }).subscribe({
       next: (res) => {
         this.currentPageState.result = res;

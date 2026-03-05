@@ -61,7 +61,7 @@
                 <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
               </div>
               <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
                   {{ currentPageState.loading ? 'Importing…' : 'Import' }}
                 </button>
                 <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
@@ -105,7 +105,7 @@
           } @else {
             <div class="currentPageState.results-table-block">
               <div class="currentPageState.results-table-wrap">
-                <table class="currentPageState.results-table cols-8">
+                <table class="currentPageState.results-table cols-7">
                   <thead>
                     <tr>
                       <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
@@ -135,10 +135,6 @@
                       <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'shift')" (keydown.space)="setSort(sheet, 'shift'); $event.preventDefault()">
                         Shift
                         <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
-                      </th>
-                      <th class="sortable" (click)="setSort(sheet, 'employeeType')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeType')" (keydown.space)="setSort(sheet, 'employeeType'); $event.preventDefault()">
-                        Employee
-                        <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'desc'">↓</span></span>
                       </th>
                       <th class="col-actions"></th>
                     </tr>
@@ -211,14 +207,6 @@
                         <td>
                           <input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" />
                         </td>
-                        <td>
-                          <select class="cell-input cell-select" [value]="getEmployeeTypeValue(row, sheet)" (change)="row.employeeType = $any($event.target).value">
-                            <option value="Employee">Employee</option>
-                            <option value="Agency Worker">Agency Worker</option>
-                            <option value="Instructor">Instructor</option>
-                            <option value="Admin">Admin</option>
-                          </select>
-                        </td>
                         <td class="col-actions">
                           @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
                             <button type="button" class="cell-delete-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
@@ -262,6 +250,7 @@
           <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
             {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
           </button>
+          <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
           @if (currentPageState.nameCheckError) {
             <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
@@ -296,7 +285,7 @@
                 <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
               </div>
               <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
                   {{ currentPageState.loading ? 'Importing…' : 'Import' }}
                 </button>
                 <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
@@ -337,7 +326,7 @@
         <div class="sheet-card" [class.invalid]="getAgencyAttentionCount() > 0">
           <div class="currentPageState.results-table-block">
             <div class="currentPageState.results-table-wrap">
-              <table class="currentPageState.results-table cols-8">
+              <table class="currentPageState.results-table cols-7">
                 <thead>
                   <tr>
                     <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
@@ -361,9 +350,6 @@
                     </th>
                     <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'shift')" (keydown.space)="setSort(sheet, 'shift'); $event.preventDefault()">Shift
                       <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
-                    </th>
-                    <th class="sortable" (click)="setSort(sheet, 'employeeType')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeType')" (keydown.space)="setSort(sheet, 'employeeType'); $event.preventDefault()">Employee
-                      <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeType') === 'desc'">↓</span></span>
                     </th>
                     <th class="col-actions"></th>
                   </tr>
@@ -414,14 +400,6 @@
                       <td><input class="cell-input" type="text" [value]="row.dob ?? ''" (input)="row.dob = $any($event.target).value" /></td>
                       <td><input class="cell-input" type="text" [value]="row.site ?? ''" (input)="row.site = $any($event.target).value" /></td>
                       <td><input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" /></td>
-                      <td>
-                        <select class="cell-input cell-select" [value]="getEmployeeTypeValue(row, sheet)" (change)="row.employeeType = $any($event.target).value">
-                          <option value="Employee">Employee</option>
-                          <option value="Agency Worker">Agency Worker</option>
-                          <option value="Instructor">Instructor</option>
-                          <option value="Admin">Admin</option>
-                        </select>
-                      </td>
                       <td class="col-actions">
                         @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
                           <button type="button" class="cell-delete-btn" [attr.title]="getConfirmButtonTitle(row)" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
@@ -453,6 +431,7 @@
           <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
             {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
           </button>
+          <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
           @if (currentPageState.nameCheckError) {
             <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
@@ -648,6 +627,11 @@
           } @else {
             <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see training data.</p>
           }
+          @if (currentPageState.trainingSubTab === 'Training Data') {
+            <div class="employee-data-actions">
+              <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
+            </div>
+          }
         </section>
         }
       }
@@ -804,6 +788,40 @@
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" (click)="closeSheetSelectDialog()">Cancel</button>
           <button type="button" class="btn btn-primary" (click)="confirmSheetSelection()">Use this sheet</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (currentPageState.showColumnMappingDialog && currentColumnMappingColumn; as col) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" [attr.aria-labelledby]="'column-mapping-dialog-title'">
+      <div class="dialog-backdrop" (click)="closeColumnMappingDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="column-mapping-dialog-title" class="dialog-title">Assign Fields ({{ currentPageState.columnMappingDialogPage + 1 }} of {{ columnMappingColumns.length }})</h2>
+        <div class="dialog-body">
+          <p class="dialog-label">Please select the column in your Excel that is for {{ col.label }}.</p>
+          <div class="dialog-form-row">
+            <label class="dialog-label" for="column-mapping-select">{{ col.label }}</label>
+            <select
+              id="column-mapping-select"
+              class="dialog-input cell-select"
+              [value]="currentPageState.columnMapping[col.key] ?? ''"
+              (change)="setColumnMappingValue(col.key, $any($event.target).value)"
+            >
+              <option value=""></option>
+              @for (opt of availableColumnOptionsForMapping; track opt.index) {
+                <option [value]="opt.title">{{ opt.title }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="columnMappingPrev()" [disabled]="currentPageState.columnMappingDialogPage === 0">Back</button>
+          @if (currentPageState.columnMappingDialogPage < columnMappingColumns.length - 1) {
+            <button type="button" class="btn btn-primary" (click)="columnMappingNext()" [disabled]="!canColumnMappingGoNext">{{ columnMappingNextButtonLabel }}</button>
+          } @else {
+            <button type="button" class="btn btn-primary" (click)="closeColumnMappingDialog()" [disabled]="!canColumnMappingGoNext">Done</button>
+          }
         </div>
       </div>
     </div>

@@ -2,6 +2,25 @@ import { ValidationResult } from './validation-result';
 
 export type PageKey = 'Employees' | 'Agency Workers' | 'Training' | 'Assets';
 
+/** One Excel column option for the mapping dropdown (column has some data). */
+export interface ExcelColumnOption {
+  index: number;
+  title: string;
+}
+
+/** Target columns for mapping (key used in API). */
+export type ColumnMappingKey = 'employeeId' | 'firstName' | 'lastName' | 'email' | 'dob' | 'shift';
+
+/** Column mapping config: display name and whether required. */
+export const COLUMN_MAPPING_COLUMNS: { key: ColumnMappingKey; label: string; required: boolean }[] = [
+  { key: 'employeeId', label: 'Employee ID', required: true },
+  { key: 'firstName', label: 'First Name', required: true },
+  { key: 'lastName', label: 'Last Name', required: true },
+  { key: 'email', label: 'Email address', required: false },
+  { key: 'dob', label: 'Date of Birth', required: false },
+  { key: 'shift', label: 'Shift', required: false },
+];
+
 /** Import and display state for a single page (Employees, Agency Workers, or Training). */
 export interface PageImportState {
   selectedFile: File | null;
@@ -11,6 +30,13 @@ export interface PageImportState {
   excelSheetNames: string[];
   selectedSheetName: string | null;
   showSheetSelectDialog: boolean;
+  /** Column titles from the Excel sheet that have at least one data cell (for mapping dropdown). */
+  excelColumnOptions: ExcelColumnOption[];
+  /** User-selected mapping: our column key -> Excel column title (empty string = Skip). */
+  columnMapping: Partial<Record<ColumnMappingKey, string>>;
+  /** Current page index (0-based) in the column mapping dialog. */
+  columnMappingDialogPage: number;
+  showColumnMappingDialog: boolean;
   importedFileLabel: string | null;
   error: string | null;
   loading: boolean;
@@ -36,6 +62,10 @@ export function createDefaultPageImportState(): PageImportState {
     excelSheetNames: [],
     selectedSheetName: null,
     showSheetSelectDialog: false,
+    excelColumnOptions: [],
+    columnMapping: {},
+    columnMappingDialogPage: 0,
+    showColumnMappingDialog: false,
     importedFileLabel: null,
     error: null,
     loading: false,

@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -102,6 +102,16 @@ const skillPhotoUpload = multer({
 function normalizeHeader(str) {
   if (str == null || typeof str !== 'string') return '';
   return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Find column index by exact header match (used when client sends column mapping). */
+function findColumnIndexByMapping(headers, mappedHeaderName) {
+  if (mappedHeaderName == null || String(mappedHeaderName).trim() === '') return -1;
+  const n = normalizeHeader(mappedHeaderName);
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizeHeader(headers[i]) === n) return i;
+  }
+  return -1;
 }
 
 function findColumnIndex(headers, ...possibleNames) {
@@ -431,7 +441,8 @@ function rowKey(row) {
 }
 
 function validateWorkbook(buffer, options) {
-  const { sheetName: singleSheetName, sheetType: singleSheetType } = options || {};
+  const { sheetName: singleSheetName, sheetType: singleSheetType, columnMapping: columnMappingOpt } = options || {};
+  const columnMapping = columnMappingOpt && typeof columnMappingOpt === 'object' ? columnMappingOpt : {};
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const results = {
     fileName: '',
@@ -497,13 +508,16 @@ function validateWorkbook(buffer, options) {
       ? instructorBlocks.flatMap(b => b.dataRows)
       : data.slice(1);
 
-    const empIdIdx = findEmployeeIdIndex(headers);
-    const empNumberIdx = findEmployeeNumberIndex(headers);
+    const useMappingOnly = columnMapping && typeof columnMapping === 'object' && Object.keys(columnMapping).length > 0;
+
+    let empIdIdx = findColumnIndexByMapping(headers, columnMapping.employeeId);
+    if (!useMappingOnly && empIdIdx < 0) empIdIdx = findEmployeeIdIndex(headers);
+    let empNumberIdx = useMappingOnly ? -1 : findEmployeeNumberIndex(headers);
 
     const MIN_ID_LENGTH = 4;
 
     let effectiveEmpIdIdx = empIdIdx;
-    if (empIdIdx >= 0 && empNumberIdx >= 0) {
+    if (!useMappingOnly && empIdIdx >= 0 && empNumberIdx >= 0) {
       const idColSequential = isColumnSequentialFromOne(dataRows, empIdIdx);
       const numberColSequential = isColumnSequentialFromOne(dataRows, empNumberIdx);
       const idColLongEnough = columnValuesMajorityAtLeastNChars(dataRows, empIdIdx, MIN_ID_LENGTH);
@@ -524,37 +538,29 @@ function validateWorkbook(buffer, options) {
       } else {
         effectiveEmpIdIdx = empNumberIdx;
       }
-    } else if (empNumberIdx >= 0 && empIdIdx < 0) {
+    } else if (!useMappingOnly && empNumberIdx >= 0 && empIdIdx < 0) {
       effectiveEmpIdIdx = empNumberIdx;
     }
 
-    const firstNameIdx = findColumnIndex(
-      headers,
-      'First Name',
-      'FirstName',
-      'Given Name'
-    );
-    const lastNameIdx = findColumnIndex(
-      headers,
-      'Last Name',
-      'LastName',
-      'Surname',
-      'Family Name'
-    );
-    const emailIdx = findColumnIndex(
-      headers,
-      'Email',
-      'E-mail',
-      'Email Address',
-      'Email (optional)'
-    );
-    const dobIdx = findColumnIndex(headers, 'DOB', 'Date of Birth', 'Birth Date', 'Date Of Birth');
-    let siteIdx = findColumnIndexStartsWith(headers, 'site id');
-    if (siteIdx < 0) siteIdx = findColumnIndexStartsWith(headers, 'site');
-    if (siteIdx < 0) siteIdx = findColumnIndexIncludes(headers, 'site');
-    const shiftIdx = findColumnIndexStartsWith(headers, 'shift');
-    let instructorYnIdx = findColumnIndex(headers, 'Instructor Y/N', 'Instructor Y/N*', 'Instructor Y/N *');
-    if (instructorYnIdx < 0) instructorYnIdx = findColumnIndexStartsWith(headers, 'instructor y');
+    let firstNameIdx = findColumnIndexByMapping(headers, columnMapping.firstName);
+    if (!useMappingOnly && firstNameIdx < 0) firstNameIdx = findColumnIndex(headers, 'First Name', 'FirstName', 'Given Name');
+    let lastNameIdx = findColumnIndexByMapping(headers, columnMapping.lastName);
+    if (!useMappingOnly && lastNameIdx < 0) lastNameIdx = findColumnIndex(headers, 'Last Name', 'LastName', 'Surname', 'Family Name');
+    let emailIdx = findColumnIndexByMapping(headers, columnMapping.email);
+    if (!useMappingOnly && emailIdx < 0) emailIdx = findColumnIndex(headers, 'Email', 'E-mail', 'Email Address', 'Email (optional)');
+    let dobIdx = findColumnIndexByMapping(headers, columnMapping.dob);
+    if (!useMappingOnly && dobIdx < 0) dobIdx = findColumnIndex(headers, 'DOB', 'Date of Birth', 'Birth Date', 'Date Of Birth');
+    let siteIdx = -1;
+    let instructorYnIdx = -1;
+    if (!useMappingOnly) {
+      siteIdx = findColumnIndexStartsWith(headers, 'site id');
+      if (siteIdx < 0) siteIdx = findColumnIndexStartsWith(headers, 'site');
+      if (siteIdx < 0) siteIdx = findColumnIndexIncludes(headers, 'site');
+      instructorYnIdx = findColumnIndex(headers, 'Instructor Y/N', 'Instructor Y/N*', 'Instructor Y/N *');
+      if (instructorYnIdx < 0) instructorYnIdx = findColumnIndexStartsWith(headers, 'instructor y');
+    }
+    let shiftIdx = findColumnIndexByMapping(headers, columnMapping.shift);
+    if (!useMappingOnly && shiftIdx < 0) shiftIdx = findColumnIndexStartsWith(headers, 'shift');
 
     const sheetReport = {
       name: sheetName,
@@ -1105,7 +1111,15 @@ app.post('/api/validate', upload.single('file'), (req, res) => {
     const buffer = fs.readFileSync(req.file.path);
     const sheetName = typeof req.body.sheetName === 'string' && req.body.sheetName.trim() ? req.body.sheetName.trim() : null;
     const sheetType = req.body.sheetType === 'employees' || req.body.sheetType === 'training' ? req.body.sheetType : null;
-    const options = (sheetName && sheetType) ? { sheetName, sheetType } : undefined;
+    let columnMapping = null;
+    if (req.body.columnMapping) {
+      try {
+        const raw = typeof req.body.columnMapping === 'string' ? req.body.columnMapping : JSON.stringify(req.body.columnMapping);
+        columnMapping = JSON.parse(raw);
+        if (typeof columnMapping !== 'object' || columnMapping === null) columnMapping = null;
+      } catch (e) { columnMapping = null; }
+    }
+    const options = { sheetName, sheetType, columnMapping };
     const result = validateWorkbook(buffer, options);
     result.fileName = req.file.originalname;
 
@@ -1116,6 +1130,33 @@ app.post('/api/validate', upload.single('file'), (req, res) => {
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlink(req.file.path, () => {});
     }
+    res.status(500).json({
+      error: 'Failed to process file',
+      message: err.message
+    });
+  }
+});
+
+/** Validate Excel from JSON body (file as base64). Use when columnMapping is required so mapping is never lost in multipart. */
+app.post('/api/validate-json', (req, res) => {
+  try {
+    const { fileBase64, fileName, sheetName, sheetType, columnMapping } = req.body || {};
+    if (!fileBase64 || typeof fileBase64 !== 'string') {
+      return res.status(400).json({ error: 'Missing fileBase64' });
+    }
+    const buffer = Buffer.from(fileBase64, 'base64');
+    if (buffer.length === 0) {
+      return res.status(400).json({ error: 'Invalid fileBase64' });
+    }
+    const options = {
+      sheetName: typeof sheetName === 'string' && sheetName.trim() ? sheetName.trim() : null,
+      sheetType: sheetType === 'employees' || sheetType === 'training' ? sheetType : null,
+      columnMapping: columnMapping && typeof columnMapping === 'object' ? columnMapping : {}
+    };
+    const result = validateWorkbook(buffer, options);
+    result.fileName = typeof fileName === 'string' && fileName.trim() ? fileName.trim() : 'upload.xlsx';
+    res.json(result);
+  } catch (err) {
     res.status(500).json({
       error: 'Failed to process file',
       message: err.message
