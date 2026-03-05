@@ -541,6 +541,27 @@
   margin-bottom: 1.5rem;
 }
 
+.preview-wrap {
+  margin-bottom: 1rem;
+  border: 1px solid var(--syndesi-border);
+  border-radius: var(--syndesi-radius);
+  overflow: hidden;
+  min-height: 200px;
+}
+
+.excel-preview-iframe {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  height: 50vh;
+  border: none;
+}
+
+.preview-loading {
+  margin: 1rem 0;
+  color: var(--syndesi-text-muted);
+}
+
 .upload-area {
   position: relative;
   border: 2px dashed var(--syndesi-border);

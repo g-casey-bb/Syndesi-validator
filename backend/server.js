@@ -430,7 +430,8 @@ function rowKey(row) {
   return `${a}\t${b}\t${c}`;
 }
 
-function validateWorkbook(buffer) {
+function validateWorkbook(buffer, options) {
+  const { sheetName: singleSheetName, sheetType: singleSheetType } = options || {};
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const results = {
     fileName: '',
@@ -450,13 +451,26 @@ function validateWorkbook(buffer) {
     }
   };
 
-  const employeeSheetNames = workbook.SheetNames.filter(name => {
-    const lower = name.toLowerCase();
-    return lower.includes('employees') || lower.includes('instructor');
-  });
+  let employeeSheetNames;
+  let trainingSheetName;
 
-  if (employeeSheetNames.length === 0) {
-    results.warnings.push('No sheet with "Employees" or "Instructor" in the title was found.');
+  if (singleSheetName && singleSheetType && workbook.SheetNames.includes(singleSheetName)) {
+    if (singleSheetType === 'training') {
+      employeeSheetNames = [];
+      trainingSheetName = singleSheetName;
+    } else {
+      employeeSheetNames = [singleSheetName];
+      trainingSheetName = null;
+    }
+  } else {
+    employeeSheetNames = workbook.SheetNames.filter(name => {
+      const lower = name.toLowerCase();
+      return lower.includes('employees') || lower.includes('instructor');
+    });
+    trainingSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('training'));
+    if (employeeSheetNames.length === 0 && !singleSheetName) {
+      results.warnings.push('No sheet with "Employees" or "Instructor" in the title was found.');
+    }
   }
 
   for (const sheetName of employeeSheetNames) {
@@ -892,7 +906,6 @@ function validateWorkbook(buffer) {
   }
 
   // Training sheet: parse and validate
-  const trainingSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('training'));
   const { map: skillMap, skillOptions } = loadTrainingSkillMap();
   const EVENT_TYPES = ['Basic', 'Refresher', 'Observation'];
   const RESULT_OPTIONS = ['Pass', 'Fail'];
@@ -1090,7 +1103,10 @@ app.post('/api/validate', upload.single('file'), (req, res) => {
 
   try {
     const buffer = fs.readFileSync(req.file.path);
-    const result = validateWorkbook(buffer);
+    const sheetName = typeof req.body.sheetName === 'string' && req.body.sheetName.trim() ? req.body.sheetName.trim() : null;
+    const sheetType = req.body.sheetType === 'employees' || req.body.sheetType === 'training' ? req.body.sheetType : null;
+    const options = (sheetName && sheetType) ? { sheetName, sheetType } : undefined;
+    const result = validateWorkbook(buffer, options);
     result.fileName = req.file.originalname;
 
     fs.unlink(req.file.path, () => {});

@@ -8,14 +8,15 @@
         </div>
         <nav class="header-nav-tabs" aria-label="Main sections">
           @for (tab of topLevelTabs; track tab.id) {
-            <button
-              type="button"
+            <a
+              [routerLink]="getPathForPage(tab.id)"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{ exact: true }"
               class="header-tab-btn"
-              [class.active]="topLevelTab === tab.id"
-              (click)="closeMaintenance(); setTopLevelTab(tab.id)"
+              (click)="closeMaintenance()"
             >
               {{ tab.label }}
-            </button>
+            </a>
           }
         </nav>
       </div>
@@ -38,49 +39,63 @@
         <p class="subtitle">Upload an Excel file of {{ topLevelTab }} to import and verify.</p>
       </header>
 
-      @if (error) {
-        <div class="message message-error">{{ error }}</div>
+      @if (currentPageState.error) {
+        <div class="message message-error">{{ currentPageState.error }}</div>
       }
 
       @if (topLevelTab === 'Employees') {
         <div class="tabs tabs-sub">
           @for (tab of employeesSubTabs; track tab.id) {
-            <button type="button" class="tab-btn" [class.active]="employeesSubTab === tab.id" (click)="setEmployeesSubTab(tab.id)">
+            <button type="button" class="tab-btn" [class.active]="currentPageState.employeesSubTab === tab.id" (click)="setEmployeesSubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && importedFileLabel) {
-                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
+                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
               }
             </button>
           }
         </div>
-        @if (employeesSubTab === 'Import') {
+        @if (currentPageState.employeesSubTab === 'Import') {
           <section class="upload-section">
-            <div class="upload-area" [class.has-file]="selectedFile">
-              <input id="file-input" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-            </div>
-            <div class="actions">
-              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
-                {{ loading ? 'Importing…' : 'Import' }}
-              </button>
-              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
-            </div>
+            @if (currentPageState.excelPreviewHtml) {
+              <div class="preview-wrap">
+                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            } @else if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else {
+              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
+                <input id="file-input" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            }
           </section>
         }
-        @if (employeesSubTab === 'Employee Data') {
-          @if (result && getEmployeeSheet(); as sheet) {
+        @if (currentPageState.employeesSubTab === 'Employee Data') {
+          @if (currentPageState.result && getEmployeeSheet(); as sheet) {
             <section class="results">
-              @if (result.warnings?.length) {
+              @if (currentPageState.result.warnings?.length) {
                 <div class="message message-warn">
-                  @for (w of result.warnings; track w) { <p>{{ w }}</p> }
+                  @for (w of currentPageState.result.warnings; track w) { <p>{{ w }}</p> }
                 </div>
               }
               <div class="summary">
                 <span class="badge" [class.badge-attention]="getEmployeeAttentionCount() > 0" [class.badge-attention-zero]="getEmployeeAttentionCount() === 0">
                   Employees who need attention: {{ getEmployeeAttentionCount() }}
                 </span>
-                @if (getEmployeeAttentionCount() > 0 || employeeTabShowOnlyInvalid) {
-                  <a class="summary-show-link" (click)="toggleEmployeeTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleEmployeeTabShowFilter()" (keydown.space)="toggleEmployeeTabShowFilter(); $event.preventDefault()">{{ employeeTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                @if (getEmployeeAttentionCount() > 0 || currentPageState.employeeTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleEmployeeTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleEmployeeTabShowFilter()" (keydown.space)="toggleEmployeeTabShowFilter(); $event.preventDefault()">{{ currentPageState.employeeTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
                 }
               </div>
               @if (sheet.rows?.length) {
@@ -88,9 +103,9 @@
           @if (sheet.message) {
             <p class="sheet-message">{{ sheet.message }}</p>
           } @else {
-            <div class="results-table-block">
-              <div class="results-table-wrap">
-                <table class="results-table cols-8">
+            <div class="currentPageState.results-table-block">
+              <div class="currentPageState.results-table-wrap">
+                <table class="currentPageState.results-table cols-8">
                   <thead>
                     <tr>
                       <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
@@ -129,13 +144,13 @@
                     </tr>
                   </thead>
                   <tbody>
-                    @for (row of getFilteredEmployeeRows(sheet, employeeTabShowOnlyInvalid); track row.rowIndex) {
+                    @for (row of getFilteredEmployeeRows(sheet, currentPageState.employeeTabShowOnlyInvalid); track row.rowIndex) {
                       <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
                         <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellTooltip(row, 'employeeId', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'employeeId')) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'employeeId', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'employeeId', getIdLabel(sheet))" role="img" aria-label="Validation currentPageState.error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -149,7 +164,7 @@
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
+                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation currentPageState.error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -163,7 +178,7 @@
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
+                              <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation currentPageState.error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -177,7 +192,7 @@
                           <div class="cell-with-icon">
                             <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
                             @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
-                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                              <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation currentPageState.error">
                                 <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
                                   <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
@@ -238,7 +253,7 @@
                 </table>
               </div>
               @if (!sheet.rows?.length && sheet.rowCount > 0) {
-                <p class="results-table-empty">No row data to display.</p>
+                <p class="currentPageState.results-table-empty">No row data to display.</p>
               }
             </div>
           }
@@ -247,17 +262,17 @@
           <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
             {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
           </button>
-          @if (nameCheckError) {
-            <span class="name-check-error">{{ nameCheckError }}</span>
+          @if (currentPageState.nameCheckError) {
+            <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
         </div>
               } @else {
-                <p class="results-table-empty">No employee data in this sheet.</p>
+                <p class="currentPageState.results-table-empty">No employee data in this sheet.</p>
               }
             </section>
           } @else {
-            <section class="results results-placeholder">
-              <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see employee data.</p>
+            <section class="currentPageState.results currentPageState.results-placeholder">
+              <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see employee data.</p>
             </section>
           }
         }
@@ -266,49 +281,63 @@
       @if (topLevelTab === 'Agency Workers') {
         <div class="tabs tabs-sub">
           @for (tab of agencySubTabs; track tab.id) {
-            <button type="button" class="tab-btn" [class.active]="agencySubTab === tab.id" (click)="setAgencySubTab(tab.id)">
+            <button type="button" class="tab-btn" [class.active]="currentPageState.agencySubTab === tab.id" (click)="setAgencySubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && importedFileLabel) {
-                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
+                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
               }
             </button>
           }
         </div>
-        @if (agencySubTab === 'Import') {
+        @if (currentPageState.agencySubTab === 'Import') {
           <section class="upload-section">
-            <div class="upload-area" [class.has-file]="selectedFile">
-              <input id="file-input-agency" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-            </div>
-            <div class="actions">
-              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
-                {{ loading ? 'Importing…' : 'Import' }}
-              </button>
-              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
-            </div>
+            @if (currentPageState.excelPreviewHtml) {
+              <div class="preview-wrap">
+                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            } @else if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else {
+              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
+                <input id="file-input-agency" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            }
           </section>
         }
-        @if (agencySubTab === 'Agency Worker Data') {
-          @if (result && getAgencySheet(); as sheet) {
+        @if (currentPageState.agencySubTab === 'Agency Worker Data') {
+          @if (currentPageState.result && getAgencySheet(); as sheet) {
             <section class="results">
-              @if (result.warnings?.length) {
+              @if (currentPageState.result.warnings?.length) {
                 <div class="message message-warn">
-                  @for (w of result.warnings; track w) { <p>{{ w }}</p> }
+                  @for (w of currentPageState.result.warnings; track w) { <p>{{ w }}</p> }
                 </div>
               }
               <div class="summary">
                 <span class="badge" [class.badge-attention]="getAgencyAttentionCount() > 0" [class.badge-attention-zero]="getAgencyAttentionCount() === 0">
                   Agency workers who need attention: {{ getAgencyAttentionCount() }}
                 </span>
-                @if (getAgencyAttentionCount() > 0 || agencyTabShowOnlyInvalid) {
-                  <a class="summary-show-link" (click)="toggleAgencyTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleAgencyTabShowFilter()" (keydown.space)="toggleAgencyTabShowFilter(); $event.preventDefault()">{{ agencyTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                @if (getAgencyAttentionCount() > 0 || currentPageState.agencyTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleAgencyTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleAgencyTabShowFilter()" (keydown.space)="toggleAgencyTabShowFilter(); $event.preventDefault()">{{ currentPageState.agencyTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
                 }
               </div>
               @if (sheet.rows?.length) {
         <div class="sheet-card" [class.invalid]="getAgencyAttentionCount() > 0">
-          <div class="results-table-block">
-            <div class="results-table-wrap">
-              <table class="results-table cols-8">
+          <div class="currentPageState.results-table-block">
+            <div class="currentPageState.results-table-wrap">
+              <table class="currentPageState.results-table cols-8">
                 <thead>
                   <tr>
                     <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0" (keydown.enter)="setSort(sheet, 'employeeId')" (keydown.space)="setSort(sheet, 'employeeId'); $event.preventDefault()">
@@ -340,13 +369,13 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of getFilteredEmployeeRows(sheet, agencyTabShowOnlyInvalid); track row.rowIndex) {
+                  @for (row of getFilteredEmployeeRows(sheet, currentPageState.agencyTabShowOnlyInvalid); track row.rowIndex) {
                     <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
                       <td [attr.title]="isCellConfirmed(sheet.name, row.rowIndex, 'employeeId') ? null : getCellTooltip(row, 'employeeId', getIdLabel(sheet))">
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellTooltip(row, 'employeeId', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'employeeId')) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'employeeId', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'employeeId', getIdLabel(sheet))" role="img" aria-label="Validation currentPageState.error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
@@ -356,7 +385,7 @@
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
+                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'firstName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation currentPageState.error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
@@ -366,7 +395,7 @@
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation error">
+                            <span class="cell-invalid-icon" [attr.title]="getCellDisplayTooltip(row, 'lastName', getIdLabel(sheet), sheet)" role="img" aria-label="Validation currentPageState.error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
@@ -376,7 +405,7 @@
                         <div class="cell-with-icon">
                           <input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" />
                           @if (getCellTooltip(row, 'email', getIdLabel(sheet)) && !isCellConfirmed(sheet.name, row.rowIndex, 'email')) {
-                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation error">
+                            <span class="cell-invalid-icon" [attr.title]="getCellTooltip(row, 'email', getIdLabel(sheet))" role="img" aria-label="Validation currentPageState.error">
                               <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/><path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/><circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/></svg>
                             </span>
                           }
@@ -424,17 +453,17 @@
           <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">
             {{ nameCheckLoading ? 'Checking names…' : 'Check names' }}
           </button>
-          @if (nameCheckError) {
-            <span class="name-check-error">{{ nameCheckError }}</span>
+          @if (currentPageState.nameCheckError) {
+            <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
         </div>
               } @else {
-                <p class="results-table-empty">No agency worker data in this sheet.</p>
+                <p class="currentPageState.results-table-empty">No agency worker data in this sheet.</p>
               }
             </section>
           } @else {
-            <section class="results results-placeholder">
-              <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see agency worker data.</p>
+            <section class="currentPageState.results currentPageState.results-placeholder">
+              <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see agency worker data.</p>
             </section>
           }
         }
@@ -443,30 +472,44 @@
       @if (topLevelTab === 'Training') {
         <div class="tabs tabs-sub">
           @for (tab of trainingSubTabs; track tab.id) {
-            <button type="button" class="tab-btn" [class.active]="trainingSubTab === tab.id" (click)="setTrainingSubTab(tab.id)">
+            <button type="button" class="tab-btn" [class.active]="currentPageState.trainingSubTab === tab.id" (click)="setTrainingSubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && importedFileLabel) {
-                <span class="tab-close" (click)="clearImportedFileLabel(); $event.stopPropagation()" role="button" title="Revert to Import" aria-label="Revert tab to Import">×</span>
+              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
+                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
               }
             </button>
           }
         </div>
-        @if (trainingSubTab === 'Import') {
+        @if (currentPageState.trainingSubTab === 'Import') {
           <section class="upload-section">
-            <div class="upload-area" [class.has-file]="selectedFile">
-              <input id="file-input-training" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-              <p class="upload-label">{{ selectedFile ? selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-            </div>
-            <div class="actions">
-              <button class="btn btn-primary" (click)="validate()" [disabled]="!selectedFile || loading">
-                {{ loading ? 'Importing…' : 'Import' }}
-              </button>
-              <button class="btn btn-secondary" (click)="reset()" [disabled]="loading">Clear</button>
-            </div>
+            @if (currentPageState.excelPreviewHtml) {
+              <div class="preview-wrap">
+                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            } @else if (currentPageState.previewLoading) {
+              <p class="preview-loading">Loading preview…</p>
+            } @else {
+              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
+                <input id="file-input-training" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
+                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
+                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
+                </button>
+                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
+              </div>
+            }
           </section>
         }
-        @if (trainingSubTab === 'Training Data') {
-        <section class="results" [class.results-placeholder]="!getTrainingSheet()?.rows?.length">
+        @if (currentPageState.trainingSubTab === 'Training Data') {
+        <section class="currentPageState.results" [class.currentPageState.results-placeholder]="!getTrainingSheet()?.rows?.length">
           <h2>Training</h2>
           @if (getTrainingSheet(); as training) {
             @if (training.rows?.length) {
@@ -474,13 +517,13 @@
                 <span class="badge" [class.badge-attention]="getTrainingAttentionCount() > 0" [class.badge-attention-zero]="getTrainingAttentionCount() === 0">
                   Training that needs attention: {{ getTrainingAttentionCount() }}
                 </span>
-                @if (getTrainingAttentionCount() > 0 || trainingShowOnlyInvalid) {
-                  <a class="summary-show-link" (click)="toggleTrainingShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleTrainingShowFilter()" (keydown.space)="toggleTrainingShowFilter(); $event.preventDefault()">{{ trainingShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                @if (getTrainingAttentionCount() > 0 || currentPageState.trainingShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleTrainingShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleTrainingShowFilter()" (keydown.space)="toggleTrainingShowFilter(); $event.preventDefault()">{{ currentPageState.trainingShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
                 }
               </div>
-              <div class="results-table-block">
-                <div class="results-table-wrap">
-                  <table class="results-table results-table-training cols-6">
+              <div class="currentPageState.results-table-block">
+                <div class="currentPageState.results-table-wrap">
+                  <table class="currentPageState.results-table currentPageState.results-table-training cols-6">
                     <thead>
                       <tr>
                         <th class="sortable" (click)="setTrainingSort('skill')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('skill')" (keydown.space)="setTrainingSort('skill'); $event.preventDefault()">
@@ -495,9 +538,9 @@
                           Test Date
                           <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('testDate') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('testDate') === 'desc'">↓</span></span>
                         </th>
-                        <th class="sortable" (click)="setTrainingSort('result')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('result')" (keydown.space)="setTrainingSort('result'); $event.preventDefault()">
+                        <th class="sortable" (click)="setTrainingSort('currentPageState.result')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('currentPageState.result')" (keydown.space)="setTrainingSort('currentPageState.result'); $event.preventDefault()">
                           Result
-                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('result') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('result') === 'desc'">↓</span></span>
+                          <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('currentPageState.result') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('currentPageState.result') === 'desc'">↓</span></span>
                         </th>
                         <th class="sortable" (click)="setTrainingSort('employeeId')" role="button" tabindex="0" (keydown.enter)="setTrainingSort('employeeId')" (keydown.space)="setTrainingSort('employeeId'); $event.preventDefault()">
                           Employee ID
@@ -521,7 +564,7 @@
                                 }
                               </select>
                               @if (row.skillError) {
-                                <span class="cell-invalid-icon" [attr.title]="row.skillError" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" [attr.title]="row.skillError" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               }
                             </div>
                           </td>
@@ -537,7 +580,7 @@
                                 <option value="Observation">Observation</option>
                               </select>
                               @if (row.eventTypeError || !(row.eventType ?? '').trim()) {
-                                <span class="cell-invalid-icon" [attr.title]="row.eventTypeError || 'An event type must be selected'" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" [attr.title]="row.eventTypeError || 'An event type must be selected'" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               }
                             </div>
                           </td>
@@ -545,11 +588,11 @@
                             <div class="cell-with-icon">
                               <input class="cell-input" type="text" [value]="row.testDate" (input)="row.testDate = $any($event.target).value" (blur)="onTrainingTestDateChange(row, row.testDate)" placeholder="DD/MM/YYYY" />
                               @if (row.testDateError || !(row.testDate ?? '').trim()) {
-                                <span class="cell-invalid-icon" [attr.title]="row.testDateError || 'Test date is missing'" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" [attr.title]="row.testDateError || 'Test date is missing'" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               }
                             </div>
                           </td>
-                          <td [attr.title]="row.resultDefaulted ? 'Result not provided so set to Pass' : (row.resultError || (!(row.result ?? '').trim() ? 'Training result is missing' : null))">
+                          <td [attr.title]="row.resultDefaulted ? 'Result not provided so set to Pass' : (row.resultError || (!(row.result ?? '').trim() ? 'Training currentPageState.result is missing' : null))">
                             <div class="cell-with-icon">
                               <select class="cell-input cell-select" [value]="row.result" (change)="onTrainingResultChange(row, $any($event.target).value)">
                                 <option value="">-- Select --</option>
@@ -562,7 +605,7 @@
                               @if (row.resultDefaulted) {
                                 <span class="cell-invalid-icon" title="Result not provided so set to Pass" role="img" aria-label="Info">⚠</span>
                               } @else if (row.resultError || !(row.result ?? '').trim()) {
-                                <span class="cell-invalid-icon" [attr.title]="row.resultError || 'Training result is missing'" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" [attr.title]="row.resultError || 'Training currentPageState.result is missing'" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               }
                             </div>
                           </td>
@@ -570,9 +613,9 @@
                             <div class="cell-with-icon">
                               <input class="cell-input" type="text" [value]="row.employeeId" (input)="onTrainingEmployeeIdChange(row, $any($event.target).value)" />
                               @if (row.duplicateTraining) {
-                                <span class="cell-invalid-icon" title="Duplicate training" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" title="Duplicate training" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               } @else if (!(row.employeeId ?? '').trim()) {
-                                <span class="cell-invalid-icon" title="Employee ID is missing" role="img" aria-label="Validation error">⚠</span>
+                                <span class="cell-invalid-icon" title="Employee ID is missing" role="img" aria-label="Validation currentPageState.error">⚠</span>
                               }
                             </div>
                           </td>
@@ -598,21 +641,21 @@
                 </div>
               </div>
             } @else {
-              <p class="results-table-empty">No training data in this file.</p>
+              <p class="currentPageState.results-table-empty">No training data in this file.</p>
             }
-          } @else if (result) {
-            <p class="results-table-empty">No Training sheet found in this file.</p>
+          } @else if (currentPageState.result) {
+            <p class="currentPageState.results-table-empty">No Training sheet found in this file.</p>
           } @else {
-            <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see training data.</p>
+            <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see training data.</p>
           }
         </section>
         }
       }
 
       @if (topLevelTab === 'Assets') {
-        <section class="results results-placeholder">
+        <section class="currentPageState.results currentPageState.results-placeholder">
           <h2>Assets</h2>
-          <p class="results-table-empty">Assets content will appear here.</p>
+          <p class="currentPageState.results-table-empty">Assets content will appear here.</p>
         </section>
       }
     </div>
@@ -742,6 +785,30 @@
   </footer>
   }
 
+  @if (currentPageState.showSheetSelectDialog) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="sheet-select-dialog-title">
+      <div class="dialog-backdrop" (click)="closeSheetSelectDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="sheet-select-dialog-title" class="dialog-title">Select which sheet to import</h2>
+        <div class="dialog-body">
+          <p class="dialog-label">This file contains multiple sheets. Choose the sheet to use for preview and import.</p>
+          <div class="dialog-form-row">
+            <label class="dialog-label" for="sheet-select-dropdown">Sheet</label>
+            <select id="sheet-select-dropdown" class="dialog-input cell-select" [value]="currentPageState.selectedSheetName" (change)="currentPageState.selectedSheetName = $any($event.target).value">
+              @for (name of currentPageState.excelSheetNames; track name) {
+                <option [value]="name">{{ name }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeSheetSelectDialog()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="confirmSheetSelection()">Use this sheet</button>
+        </div>
+      </div>
+    </div>
+  }
+
   @if (settingsDialogOpen) {
     <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <div class="dialog-backdrop" (click)="closeSettings()"></div>
@@ -826,14 +893,14 @@
               <input id="unknown-skill-url" class="dialog-input" type="url" [value]="unknownSkillForm.photoUrl" (input)="setUnknownSkillPhotoUrl($any($event.target).value)" placeholder="https://..." />
             </div>
             @if (unknownSkillPhotoUploadError) {
-              <p class="unknown-skill-upload-error">{{ unknownSkillPhotoUploadError }}</p>
+              <p class="unknown-skill-upload-currentPageState.error">{{ unknownSkillPhotoUploadError }}</p>
             }
           </div>
         </div>
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" (click)="closeUnknownSkillDialog()" [disabled]="unknownSkillPhotoUploading">Cancel</button>
           <button type="button" class="btn btn-primary" (click)="sendUnknownSkillQuery()" [disabled]="!canSendUnknownSkill() || unknownSkillPhotoUploading">
-            {{ unknownSkillPhotoUploading ? 'Uploading...' : 'Send' }}
+            {{ unknownSkillPhotoUploading ? 'UpcurrentPageState.loading...' : 'Send' }}
           </button>
         </div>
       </div>

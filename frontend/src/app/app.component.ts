@@ -1,91 +1,90 @@
 import { Component, ChangeDetectorRef, OnInit, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Router, RouterModule } from '@angular/router';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
 import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
+import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey } from './models/page-import-state';
+import * as XLSX from 'xlsx';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterModule],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })
 export class AppComponent implements OnInit {
-  result: ValidationResult | null = null;
-  loading = false;
-  error: string | null = null;
-  selectedFile: File | null = null;
-  rowsToReverse: Record<string, Set<number>> = {};
+  /** Import and display state per page; keyed by page. */
+  pageState: Record<PageKey, PageImportState> = {
+    'Employees': createDefaultPageImportState(),
+    'Agency Workers': createDefaultPageImportState(),
+    'Training': createDefaultPageImportState(),
+    'Assets': createDefaultPageImportState(),
+  };
+
+  /** Current page derived from router URL. */
+  topLevelTab: PageKey = 'Employees';
+
+  /** State for the current page (convenience accessor). */
+  get currentPageState(): PageImportState {
+    return this.pageState[this.topLevelTab];
+  }
+
   exporting = false;
 
-  /** Sheet name -> Set of 'rowIndex-field' for cells user has confirmed as valid. */
-  confirmedCells: Record<string, Set<string>> = {};
-
-  /** Per-sheet sort: column key and direction. */
+  /** Per-sheet sort: column key and direction (shared across pages; keyed by sheet name). */
   sortState: Record<string, { key: string; dir: 'asc' | 'desc' }> = {};
 
   /** Sort state key for the Training table (single sheet). */
   readonly trainingSortKey = 'training';
 
-  /** When true, Employees table shows only rows that need attention. */
-  employeesShowOnlyInvalid = false;
-
-  /** When true, Training table shows only invalid rows. */
-  trainingShowOnlyInvalid = false;
-
-  /** Top-level tab: Employees, Training, or Assets. Always visible. */
-  topLevelTab: 'Employees' | 'Agency Workers' | 'Training' | 'Assets' = 'Employees';
-
-  /** Sub-tab for Employees: Import (file upload) or Employee Data (table). */
-  employeesSubTab: 'Import' | 'Employee Data' = 'Import';
-
-  /** Sub-tab for Agency Workers: Import (file upload) or Agency Worker Data (table). */
-  agencySubTab: 'Import' | 'Agency Worker Data' = 'Import';
-
-  /** Active employee sub-tab: 'Employees' (Core), 'Agency Employees', or 'Instructor'. Used for Employee Data table. */
-  activeTab: 'Employees' | 'Agency Employees' | 'Instructor' = 'Employees';
-
-  /** Sub-tab for Training: Import (file upload) or Training Data (table). */
-  trainingSubTab: 'Import' | 'Training Data' = 'Import';
-
-  /** When true, Employee Data table shows only rows that need attention. */
-  employeeTabShowOnlyInvalid = false;
-
-  /** When true, Agency Worker Data table shows only rows that need attention. */
-  agencyTabShowOnlyInvalid = false;
-
-  /** Top-level tabs (four). */
-  readonly topLevelTabs: { id: 'Employees' | 'Agency Workers' | 'Training' | 'Assets'; label: string }[] = [
+  /** Top-level pages (four). */
+  readonly topLevelTabs: { id: PageKey; label: string }[] = [
     { id: 'Employees', label: 'Employees' },
     { id: 'Agency Workers', label: 'Agency Workers' },
     { id: 'Training', label: 'Training' },
     { id: 'Assets', label: 'Assets' },
   ];
 
-  /** Import tab label: set to file name after import, reverted to 'Import' on Clear. */
-  importedFileLabel: string | null = null;
-
   get employeesSubTabs(): { id: 'Import' | 'Employee Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
     return [
-      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Import', label: importLabel },
       { id: 'Employee Data', label: 'Employee Data' },
     ];
   }
 
   get agencySubTabs(): { id: 'Import' | 'Agency Worker Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
     return [
-      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Import', label: importLabel },
       { id: 'Agency Worker Data', label: 'Agency Worker Data' },
     ];
   }
 
   get trainingSubTabs(): { id: 'Import' | 'Training Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
     return [
-      { id: 'Import', label: this.importedFileLabel ?? 'Import' },
+      { id: 'Import', label: importLabel },
       { id: 'Training Data', label: 'Training Data' },
     ];
+  }
+
+  /** Safe HTML for iframe srcdoc (Excel preview) for current page. */
+  get sanitizedExcelPreview(): SafeHtml | null {
+    const html = this.currentPageState.excelPreviewHtml;
+    return html ? this.sanitizer.bypassSecurityTrustHtml(html) : null;
+  }
+
+  /** Path for a page (for routerLink). */
+  getPathForPage(page: PageKey): string {
+    return PAGE_PATHS[page];
   }
 
   /** Whether the Settings dialog is open. */
@@ -156,10 +155,9 @@ export class AppComponent implements OnInit {
   settingsSkillPhotosFolderInput = '';
 
   /** Probability (0–1) that first/last names are reversed, by sheet name then rowIndex. Set by "Check names". */
-  nameCheckReversedProbability: Record<string, Record<number, number>> = {};
+  /** Now stored per-page in pageState[].nameCheckReversedProbability */
 
   nameCheckLoading = false;
-  nameCheckError: string | null = null;
 
   /** Set while uploading skill photo in Unknown Skill dialog. */
   unknownSkillPhotoUploading = false;
@@ -170,8 +168,8 @@ export class AppComponent implements OnInit {
 
   /** Whether we have any name-check results to show (for dialog). */
   get hasNameCheckResults(): boolean {
-    return Object.keys(this.nameCheckReversedProbability).some(
-      sheetName => Object.keys(this.nameCheckReversedProbability[sheetName] ?? {}).length > 0
+    return Object.keys(this.currentPageState.nameCheckReversedProbability).some(
+      sheetName => Object.keys(this.currentPageState.nameCheckReversedProbability[sheetName] ?? {}).length > 0
     );
   }
 
@@ -182,10 +180,14 @@ export class AppComponent implements OnInit {
   constructor(
     private validator: ExcelValidatorService,
     private cdr: ChangeDetectorRef,
-    private http: HttpClient
+    private http: HttpClient,
+    private sanitizer: DomSanitizer,
+    private router: Router
   ) {}
 
   ngOnInit(): void {
+    this.syncPageFromRouter();
+    this.router.events.subscribe(() => this.syncPageFromRouter());
     try {
       this.chatGptApiKey = localStorage.getItem(this.CHATGPT_API_KEY_STORAGE) ?? '';
       this.skillPhotosFolder = localStorage.getItem(this.SKILL_PHOTOS_FOLDER_STORAGE) ?? '';
@@ -201,6 +203,20 @@ export class AppComponent implements OnInit {
     }
     this.loadSkillsFromStorage();
     this.loadSkillQueriesFromStorage();
+  }
+
+  private syncPageFromRouter(): void {
+    const path = this.router.url.split('?')[0];
+    const page = pathToPageKey(path);
+    if (page !== this.topLevelTab) {
+      this.topLevelTab = page;
+      this.cdr.markForCheck();
+    }
+  }
+
+  navigateToPage(page: PageKey): void {
+    this.closeMaintenance();
+    this.router.navigate([PAGE_PATHS[page].replace(/^\//, '')]);
   }
 
   openMaintenance(): void {
@@ -692,7 +708,7 @@ export class AppComponent implements OnInit {
 
   /** Whether this row has a high probability that first/last names are reversed (≥60%). */
   isNameReversedWarning(sheetName: string, rowIndex: number): boolean {
-    const bySheet = this.nameCheckReversedProbability[sheetName];
+    const bySheet = this.currentPageState.nameCheckReversedProbability[sheetName];
     if (!bySheet) return false;
     const p = bySheet[rowIndex];
     return typeof p === 'number' && p >= 0.6;
@@ -704,13 +720,13 @@ export class AppComponent implements OnInit {
 
   checkNames(sheet: EmployeeSheetResult): void {
     if (!sheet?.rows?.length) {
-      this.nameCheckError = 'No employee data to check.';
+      this.currentPageState.nameCheckError = 'No employee data to check.';
       this.cdr.markForCheck();
       return;
     }
     const key = this.chatGptApiKey?.trim();
     if (!key) {
-      this.nameCheckError = 'Add a ChatGPT API key in Settings first.';
+      this.currentPageState.nameCheckError = 'Add a ChatGPT API key in Settings first.';
       this.cdr.markForCheck();
       return;
     }
@@ -721,14 +737,14 @@ export class AppComponent implements OnInit {
     const lines = eligible.map(({ pair }) => `${pair.firstName} ${pair.lastName}`);
     const rowIndices = eligible.map(({ row }) => row.rowIndex);
     if (lines.length === 0) {
-      this.nameCheckError = 'No names to check (need both first and last name for each row).';
+      this.currentPageState.nameCheckError = 'No names to check (need both first and last name for each row).';
       this.cdr.markForCheck();
       return;
     }
-    this.nameCheckError = null;
+    this.currentPageState.nameCheckError = null;
     this.nameCheckLoading = true;
-    if (!this.nameCheckReversedProbability[sheet.name]) this.nameCheckReversedProbability[sheet.name] = {};
-    this.nameCheckReversedProbability[sheet.name] = {};
+    if (!this.currentPageState.nameCheckReversedProbability[sheet.name]) this.currentPageState.nameCheckReversedProbability[sheet.name] = {};
+    this.currentPageState.nameCheckReversedProbability[sheet.name] = {};
     this.cdr.markForCheck();
 
     const prompt = `Analyse a list of {first_name, last_name} pairs and estimate the probability that the names are reversed (i.e., the surname appears in the first-name field and the given name appears in the last-name field).
@@ -764,7 +780,7 @@ ${lines.join('\n')}`;
         this.nameCheckLoading = false;
         const content = res?.choices?.[0]?.message?.content?.trim();
         if (!content) {
-          this.nameCheckError = 'No response from ChatGPT.';
+          this.currentPageState.nameCheckError = 'No response from ChatGPT.';
           this.cdr.markForCheck();
           return;
         }
@@ -772,17 +788,17 @@ ${lines.join('\n')}`;
         if (parsed.length > 0) {
           for (let j = 0; j < parsed.length && j < rowIndices.length; j++) {
             if (typeof parsed[j] === 'number') {
-              this.nameCheckReversedProbability[sheet.name][rowIndices[j]] = parsed[j];
+              this.currentPageState.nameCheckReversedProbability[sheet.name][rowIndices[j]] = parsed[j];
             }
           }
         } else {
-          this.nameCheckError = 'Could not parse probabilities from response.';
+          this.currentPageState.nameCheckError = 'Could not parse probabilities from response.';
         }
         this.cdr.markForCheck();
       },
       error: (err) => {
         this.nameCheckLoading = false;
-        this.nameCheckError = err.error?.error?.message || err.message || 'ChatGPT request failed.';
+        this.currentPageState.nameCheckError = err.error?.error?.message || err.message || 'ChatGPT request failed.';
         this.cdr.markForCheck();
       },
     });
@@ -791,7 +807,7 @@ ${lines.join('\n')}`;
   /** For debug: list of { firstName, lastName, probability } for a sheet. */
   getNameCheckDebugList(sheet: EmployeeSheetResult): { firstName: string; lastName: string; probability: number }[] {
     if (!sheet?.rows?.length) return [];
-    const bySheet = this.nameCheckReversedProbability[sheet.name] ?? {};
+    const bySheet = this.currentPageState.nameCheckReversedProbability[sheet.name] ?? {};
     return sheet.rows.map(row => ({
       firstName: (row.firstName ?? '').trim(),
       lastName: (row.lastName ?? '').trim(),
@@ -825,95 +841,204 @@ ${lines.join('\n')}`;
     if (file) {
       const ext = file.name.toLowerCase().slice(-5);
       if (!['.xlsx', '.xls'].some(e => ext.endsWith(e))) {
-        this.error = 'Please select an Excel file (.xlsx or .xls).';
-        this.result = null;
-        this.selectedFile = null;
+        this.currentPageState.error = 'Please select an Excel file (.xlsx or .xls).';
+        this.currentPageState.result = null;
+        this.currentPageState.selectedFile = null;
+        this.currentPageState.excelPreviewHtml = null;
+        this.currentPageState.previewLoading = false;
+        this.currentPageState.excelSheetNames = [];
+        this.currentPageState.selectedSheetName = null;
+        this.currentPageState.showSheetSelectDialog = false;
         return;
       }
-      this.error = null;
-      this.result = null;
-      this.selectedFile = file;
+      this.currentPageState.error = null;
+      this.currentPageState.result = null;
+      this.currentPageState.selectedFile = file;
+      this.currentPageState.excelPreviewHtml = null;
+      this.currentPageState.previewLoading = true;
+      this.currentPageState.excelSheetNames = [];
+      this.currentPageState.selectedSheetName = null;
+      this.currentPageState.showSheetSelectDialog = false;
+      file.arrayBuffer().then((ab) => {
+        try {
+          const wb = XLSX.read(ab, { type: 'array' });
+          const names = wb.SheetNames || [];
+          this.currentPageState.excelSheetNames = names;
+          this.currentPageState.previewLoading = false;
+          if (names.length === 0) {
+            this.currentPageState.excelPreviewHtml = '<p>No sheets in workbook.</p>';
+            this.currentPageState.selectedSheetName = null;
+          } else if (names.length === 1) {
+            this.currentPageState.selectedSheetName = names[0];
+            this.buildExcelPreview(file, names[0]);
+          } else {
+            this.currentPageState.showSheetSelectDialog = true;
+            this.currentPageState.selectedSheetName = names[0];
+          }
+          this.cdr.markForCheck();
+        } catch (e) {
+          this.currentPageState.previewLoading = false;
+          this.currentPageState.excelPreviewHtml = '<p>Could not parse Excel file.</p>';
+          this.currentPageState.error = 'Could not preview file.';
+          this.cdr.markForCheck();
+        }
+      }).catch(() => {
+        this.currentPageState.excelPreviewHtml = null;
+        this.currentPageState.previewLoading = false;
+        this.currentPageState.error = 'Could not read file.';
+        this.currentPageState.excelSheetNames = [];
+        this.currentPageState.selectedSheetName = null;
+        this.cdr.markForCheck();
+      });
     }
   }
 
-  validate(): void {
-    if (!this.selectedFile) {
-      this.error = 'Please select a file first.';
-      return;
-    }
-    this.loading = true;
-    this.error = null;
-    this.result = null;
-    this.rowsToReverse = {};
-    this.confirmedCells = {};
-    this.nameCheckReversedProbability = {};
-    this.nameCheckError = null;
-    this.employeeTabShowOnlyInvalid = false;
-    this.agencyTabShowOnlyInvalid = false;
-    this.trainingShowOnlyInvalid = false;
+  /** Confirm selected sheet from dialog and build preview. */
+  confirmSheetSelection(): void {
+    if (!this.currentPageState.selectedFile || !this.currentPageState.selectedSheetName) return;
+    this.currentPageState.showSheetSelectDialog = false;
+    this.currentPageState.previewLoading = true;
+    this.buildExcelPreview(this.currentPageState.selectedFile, this.currentPageState.selectedSheetName);
+  }
 
-    this.validator.validateFile(this.selectedFile).subscribe({
-      next: (res) => {
-        this.result = res;
-        this.runClientValidationForAllSheets();
-        const visible = this.getVisibleTabs();
-        if (visible.length > 0) {
-          const employeesSheet = this.getSheetForTab('Employees');
-          const agencySheet = this.getSheetForTab('Agency Employees');
-          const instructorSheet = this.getSheetForTab('Instructor');
-          this.activeTab = (employeesSheet?.rows?.length ?? 0) > 0 ? 'Employees'
-            : (agencySheet?.rows?.length ?? 0) > 0 ? 'Agency Employees'
-            : (instructorSheet?.rows?.length ?? 0) > 0 ? 'Instructor'
-            : visible[0].id;
+  closeSheetSelectDialog(): void {
+    this.currentPageState.showSheetSelectDialog = false;
+    this.clearPreview();
+  }
+
+  /** Parse the Excel file and set excelPreviewHtml for iframe preview. */
+  private buildExcelPreview(file: File, sheetName: string): void {
+    file.arrayBuffer().then((ab) => {
+      try {
+        const wb = XLSX.read(ab, { type: 'array' });
+        const ws = wb.Sheets[sheetName];
+        if (!ws) {
+          this.currentPageState.excelPreviewHtml = '<p>Sheet not found.</p>';
+        } else {
+          const html = XLSX.utils.sheet_to_html(ws, { id: 'excel-preview-table' });
+          this.currentPageState.excelPreviewHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;font:14px/1.4 sans-serif;} th,td{border:1px solid #ccc;padding:4px 8px;} th{background:#eee;}</style></head><body>' + html + '</body></html>';
         }
-        this.loading = false;
-        this.importedFileLabel = this.selectedFile?.name ?? null;
-        if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
-        else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
-        else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
-      },
-      error: (err) => {
-        this.error = err.error?.message || err.message || 'Validation failed.';
-        this.loading = false;
-      },
+      } catch (e) {
+        this.currentPageState.excelPreviewHtml = '<p>Could not parse Excel file.</p>';
+        this.currentPageState.error = 'Could not preview file.';
+      }
+      this.currentPageState.previewLoading = false;
+      this.cdr.markForCheck();
+    }).catch(() => {
+      this.currentPageState.excelPreviewHtml = null;
+      this.currentPageState.previewLoading = false;
+      this.currentPageState.error = 'Could not read file.';
+      this.cdr.markForCheck();
     });
   }
 
-  reset(): void {
-    this.result = null;
-    this.error = null;
-    this.selectedFile = null;
-    this.importedFileLabel = null;
-    this.rowsToReverse = {};
-    this.confirmedCells = {};
-    this.nameCheckReversedProbability = {};
-    this.nameCheckError = null;
-    this.topLevelTab = 'Employees';
-    this.employeesSubTab = 'Import';
-    this.agencySubTab = 'Import';
-    this.trainingSubTab = 'Import';
-    this.activeTab = 'Employees';
+  /** Remove preview and restore file upload interface. Does not clear result or switch tabs. */
+  clearPreview(): void {
+    this.currentPageState.excelPreviewHtml = null;
+    this.currentPageState.previewLoading = false;
+    this.currentPageState.selectedFile = null;
+    this.currentPageState.selectedSheetName = null;
+    this.currentPageState.excelSheetNames = [];
+    this.currentPageState.showSheetSelectDialog = false;
+    this.currentPageState.importedFileLabel = null;
+    this.currentPageState.error = null;
     const input = document.getElementById('file-input') as HTMLInputElement;
     const inputAgency = document.getElementById('file-input-agency') as HTMLInputElement;
     const inputTraining = document.getElementById('file-input-training') as HTMLInputElement;
     if (input) input.value = '';
     if (inputAgency) inputAgency.value = '';
     if (inputTraining) inputTraining.value = '';
+    this.cdr.markForCheck();
+  }
+
+  validate(): void {
+    if (!this.currentPageState.selectedFile) {
+      this.currentPageState.error = 'Please select a file first.';
+      return;
+    }
+    this.currentPageState.loading = true;
+    this.currentPageState.error = null;
+    this.currentPageState.result = null;
+    this.currentPageState.rowsToReverse = {};
+    this.currentPageState.confirmedCells = {};
+    this.currentPageState.nameCheckReversedProbability = {};
+    this.currentPageState.nameCheckError = null;
+    this.currentPageState.employeeTabShowOnlyInvalid = false;
+    this.currentPageState.agencyTabShowOnlyInvalid = false;
+    this.currentPageState.trainingShowOnlyInvalid = false;
+
+    const sheetType = this.topLevelTab === 'Training' ? 'training' : 'employees';
+    this.validator.validateFile(this.currentPageState.selectedFile, {
+      sheetName: this.currentPageState.selectedSheetName ?? undefined,
+      sheetType
+    }).subscribe({
+      next: (res) => {
+        this.currentPageState.result = res;
+        this.runClientValidationForAllSheets();
+        const visible = this.getVisibleTabs();
+        if (visible.length > 0) {
+          const employeesSheet = this.getSheetForTab('Employees');
+          const agencySheet = this.getSheetForTab('Agency Employees');
+          const instructorSheet = this.getSheetForTab('Instructor');
+          this.currentPageState.activeTab = (employeesSheet?.rows?.length ?? 0) > 0 ? 'Employees'
+            : (agencySheet?.rows?.length ?? 0) > 0 ? 'Agency Employees'
+            : (instructorSheet?.rows?.length ?? 0) > 0 ? 'Instructor'
+            : visible[0].id;
+        }
+        this.currentPageState.loading = false;
+        this.currentPageState.importedFileLabel = this.currentPageState.selectedFile?.name ?? null;
+        if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
+        else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
+        else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
+      },
+      error: (err) => {
+        this.currentPageState.error = err.error?.message || err.message || 'Validation failed.';
+        this.currentPageState.loading = false;
+      },
+    });
+  }
+
+  reset(): void {
+    const s = this.currentPageState;
+    s.result = null;
+    s.error = null;
+    s.selectedFile = null;
+    s.excelPreviewHtml = null;
+    s.previewLoading = false;
+    s.excelSheetNames = [];
+    s.selectedSheetName = null;
+    s.showSheetSelectDialog = false;
+    s.importedFileLabel = null;
+    s.rowsToReverse = {};
+    s.confirmedCells = {};
+    s.nameCheckReversedProbability = {};
+    s.nameCheckError = null;
+    s.employeesSubTab = 'Import';
+    s.agencySubTab = 'Import';
+    s.trainingSubTab = 'Import';
+    s.activeTab = 'Employees';
+    const input = document.getElementById('file-input') as HTMLInputElement;
+    const inputAgency = document.getElementById('file-input-agency') as HTMLInputElement;
+    const inputTraining = document.getElementById('file-input-training') as HTMLInputElement;
+    if (input) input.value = '';
+    if (inputAgency) inputAgency.value = '';
+    if (inputTraining) inputTraining.value = '';
+    this.cdr.markForCheck();
   }
 
   toggleRowToReverse(sheetName: string, rowIndex: number): void {
-    if (!this.rowsToReverse[sheetName]) this.rowsToReverse[sheetName] = new Set();
-    const set = this.rowsToReverse[sheetName];
+    if (!this.currentPageState.rowsToReverse[sheetName]) this.currentPageState.rowsToReverse[sheetName] = new Set();
+    const set = this.currentPageState.rowsToReverse[sheetName];
     if (set.has(rowIndex)) set.delete(rowIndex);
     else set.add(rowIndex);
   }
 
   isRowSelectedForReverse(sheetName: string, rowIndex: number): boolean {
-    return this.rowsToReverse[sheetName]?.has(rowIndex) ?? false;
+    return this.currentPageState.rowsToReverse[sheetName]?.has(rowIndex) ?? false;
   }
 
   getCorrectionsForExport(): { sheetName: string; rowIndices: number[] }[] {
-    return Object.entries(this.rowsToReverse)
+    return Object.entries(this.currentPageState.rowsToReverse)
       .filter(([, set]) => set.size > 0)
       .map(([sheetName, set]) => ({ sheetName, rowIndices: Array.from(set) }));
   }
@@ -935,7 +1060,7 @@ ${lines.join('\n')}`;
 
   /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → Agency Employees, Instructor → Instructor. */
   getSheetForTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): EmployeeSheetResult | undefined {
-    const sheets = this.result?.employeeSheets ?? [];
+    const sheets = this.currentPageState.result?.employeeSheets ?? [];
     if (tabId === 'Employees') return sheets.find(s => s.name === 'Core Employees');
     if (tabId === 'Agency Employees') return sheets.find(s => s.name === 'Agency Employees');
     return sheets.find(s => s.name === 'Instructor');
@@ -947,29 +1072,25 @@ ${lines.join('\n')}`;
   }
 
   setActiveTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): void {
-    this.activeTab = tabId;
-  }
-
-  setTopLevelTab(tabId: 'Employees' | 'Agency Workers' | 'Training' | 'Assets'): void {
-    this.topLevelTab = tabId;
+    this.currentPageState.activeTab = tabId;
   }
 
   setEmployeesSubTab(id: 'Import' | 'Employee Data'): void {
-    this.employeesSubTab = id;
+    this.currentPageState.employeesSubTab = id;
   }
 
   setAgencySubTab(id: 'Import' | 'Agency Worker Data'): void {
-    this.agencySubTab = id;
+    this.currentPageState.agencySubTab = id;
   }
 
   setTrainingSubTab(id: 'Import' | 'Training Data'): void {
-    this.trainingSubTab = id;
+    this.currentPageState.trainingSubTab = id;
   }
 
   /** Revert the Import tab label and clear file selection so a new file can be chosen. Does not clear result or data tabs. */
   clearImportedFileLabel(): void {
-    this.importedFileLabel = null;
-    this.selectedFile = null;
+    this.currentPageState.importedFileLabel = null;
+    this.currentPageState.selectedFile = null;
     const input = document.getElementById('file-input') as HTMLInputElement;
     const inputAgency = document.getElementById('file-input-agency') as HTMLInputElement;
     const inputTraining = document.getElementById('file-input-training') as HTMLInputElement;
@@ -1002,12 +1123,12 @@ ${lines.join('\n')}`;
   }
 
   toggleEmployeeTabShowFilter(): void {
-    this.employeeTabShowOnlyInvalid = !this.employeeTabShowOnlyInvalid;
+    this.currentPageState.employeeTabShowOnlyInvalid = !this.currentPageState.employeeTabShowOnlyInvalid;
     this.cdr.markForCheck();
   }
 
   toggleAgencyTabShowFilter(): void {
-    this.agencyTabShowOnlyInvalid = !this.agencyTabShowOnlyInvalid;
+    this.currentPageState.agencyTabShowOnlyInvalid = !this.currentPageState.agencyTabShowOnlyInvalid;
     this.cdr.markForCheck();
   }
 
@@ -1098,7 +1219,7 @@ ${lines.join('\n')}`;
 
   /** Recompute duplicateTraining for all training rows (Skill + Test Date + Employee ID). */
   recomputeTrainingDuplicates(): void {
-    const training = this.result?.trainingSheet;
+    const training = this.currentPageState.result?.trainingSheet;
     if (!training?.rows?.length) return;
     const key = (r: TrainingRow) => `${(r.skill || '').trim().toLowerCase()}\t${(r.testDate || '').trim()}\t${(r.employeeId || '').trim().toLowerCase()}`;
     const keyToIndices = new Map<string, number[]>();
@@ -1144,18 +1265,18 @@ ${lines.join('\n')}`;
           }
         }
         this.recomputeTrainingDuplicates();
-        this.error = null;
+        this.currentPageState.error = null;
         this.cdr.markForCheck();
       },
       error: (err) => {
-        this.error = err?.error?.message || err?.message || 'Failed to add skill';
+        this.currentPageState.error = err?.error?.message || err?.message || 'Failed to add skill';
         this.cdr.markForCheck();
       }
     });
   }
 
   getTrainingSkillOptions(): string[] {
-    return this.skillsList.length > 0 ? this.skillsList : (this.result?.trainingSheet?.skillOptions ?? []);
+    return this.skillsList.length > 0 ? this.skillsList : (this.currentPageState.result?.trainingSheet?.skillOptions ?? []);
   }
 
   isTrainingEventTypeInvalid(value: string): boolean {
@@ -1175,7 +1296,7 @@ ${lines.join('\n')}`;
   }
 
   getTrainingSheet(): TrainingSheetResult | null | undefined {
-    return this.result?.trainingSheet;
+    return this.currentPageState.result?.trainingSheet;
   }
 
   setTrainingSort(key: string): void {
@@ -1216,12 +1337,12 @@ ${lines.join('\n')}`;
 
   getFilteredTrainingRows(training: TrainingSheetResult): TrainingRow[] {
     const sorted = this.getSortedTrainingRows(training);
-    if (!this.trainingShowOnlyInvalid) return sorted;
+    if (!this.currentPageState.trainingShowOnlyInvalid) return sorted;
     return sorted.filter(row => !row.isValid);
   }
 
   toggleTrainingShowFilter(): void {
-    this.trainingShowOnlyInvalid = !this.trainingShowOnlyInvalid;
+    this.currentPageState.trainingShowOnlyInvalid = !this.currentPageState.trainingShowOnlyInvalid;
     this.cdr.markForCheck();
   }
 
@@ -1248,25 +1369,25 @@ ${lines.join('\n')}`;
 
   /** Count of training rows that are invalid (need attention). */
   getTrainingAttentionCount(): number {
-    const training = this.result?.trainingSheet;
+    const training = this.currentPageState.result?.trainingSheet;
     if (!training?.rows?.length) return 0;
     return training.rows.filter(r => !r.isValid).length;
   }
 
   hasReversedNameErrors(): boolean {
-    return (this.result?.employeeSheets ?? []).some(sheet => (sheet.reversedNameErrors?.length ?? 0) > 0);
+    return (this.currentPageState.result?.employeeSheets ?? []).some(sheet => (sheet.reversedNameErrors?.length ?? 0) > 0);
   }
 
   /** Label for the identifier column: either "Employee ID" or "Employee Number" per backend. */
   getEmployeeIdentifierColumnLabel(): string {
-    const first = this.result?.employeeSheets?.find(s => (s.rows?.length ?? 0) > 0);
+    const first = this.currentPageState.result?.employeeSheets?.find(s => (s.rows?.length ?? 0) > 0);
     return first?.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
   }
 
   /** Run client-side validation on all sheets so spaceErrors/onlySpaceErrors are set for display. */
   private runClientValidationForAllSheets(): void {
-    if (!this.result?.employeeSheets) return;
-    for (const sheet of this.result.employeeSheets) {
+    if (!this.currentPageState.result?.employeeSheets) return;
+    for (const sheet of this.currentPageState.result.employeeSheets) {
       const rows = sheet.rows ?? [];
       if (rows.length === 0) continue;
       const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
@@ -1278,7 +1399,7 @@ ${lines.join('\n')}`;
 
   /** When the user has a Skills list (Maintenance), re-validate Training sheet skills against it so imported files use the latest list. */
   private revalidateTrainingSheetAgainstSkillsList(): void {
-    const training = this.result?.trainingSheet;
+    const training = this.currentPageState.result?.trainingSheet;
     if (!training?.rows?.length || this.skillsList.length === 0) return;
     const options = this.getTrainingSkillOptions();
     const normalizedOptions = options.map(s => (s ?? '').trim().toLowerCase());
@@ -1426,7 +1547,7 @@ ${lines.join('\n')}`;
   }
 
   toggleEmployeesShowFilter(): void {
-    this.employeesShowOnlyInvalid = !this.employeesShowOnlyInvalid;
+    this.currentPageState.employeeTabShowOnlyInvalid = !this.currentPageState.employeeTabShowOnlyInvalid;
     this.cdr.markForCheck();
   }
 
@@ -1441,7 +1562,7 @@ ${lines.join('\n')}`;
   }
 
   isCellConfirmed(sheetName: string, rowIndex: number, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed'): boolean {
-    return this.confirmedCells[sheetName]?.has(this.cellKey(rowIndex, field)) ?? false;
+    return this.currentPageState.confirmedCells[sheetName]?.has(this.cellKey(rowIndex, field)) ?? false;
   }
 
   /** True when this row is a duplicate employee (same Employee Number + First + Last name); confirm shows as delete. */
@@ -1530,22 +1651,22 @@ ${lines.join('\n')}`;
   confirmCell(sheet: { name: string; rows?: ValidationRow[] }, row: ValidationRow, field: 'employeeId' | 'firstName' | 'lastName' | 'email' | 'nameReversed'): void {
     if (field === 'nameReversed') {
       const sheetName = sheet.name;
-      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
-      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'nameReversed'));
+      if (!this.currentPageState.confirmedCells[sheetName]) this.currentPageState.confirmedCells[sheetName] = new Set();
+      this.currentPageState.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'nameReversed'));
       this.cdr.markForCheck();
       return;
     }
     if (field === 'email') {
       const sheetName = sheet.name;
-      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
-      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'email'));
+      if (!this.currentPageState.confirmedCells[sheetName]) this.currentPageState.confirmedCells[sheetName] = new Set();
+      this.currentPageState.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'email'));
       this.cdr.markForCheck();
       return;
     }
     if (field === 'employeeId' && sheet.name === 'Instructor' && ((row.employeeId ?? '').toString().trim() === '')) {
       const sheetName = sheet.name;
-      if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
-      this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'employeeId'));
+      if (!this.currentPageState.confirmedCells[sheetName]) this.currentPageState.confirmedCells[sheetName] = new Set();
+      this.currentPageState.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, 'employeeId'));
       this.cdr.markForCheck();
       return;
     }
@@ -1564,13 +1685,13 @@ ${lines.join('\n')}`;
     const val = field === 'employeeId' ? row.employeeId : field === 'firstName' ? row.firstName : row.lastName;
     if ((val ?? '').toString().trim() === '') return;
     const sheetName = sheet.name;
-    if (!this.confirmedCells[sheetName]) this.confirmedCells[sheetName] = new Set();
-    this.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, field));
+    if (!this.currentPageState.confirmedCells[sheetName]) this.currentPageState.confirmedCells[sheetName] = new Set();
+    this.currentPageState.confirmedCells[sheetName].add(this.cellKey(row.rowIndex, field));
     this.cdr.markForCheck();
   }
 
   private removeConfirmedCellsForRow(sheetName: string, rowIndex: number): void {
-    const set = this.confirmedCells[sheetName];
+    const set = this.currentPageState.confirmedCells[sheetName];
     if (!set) return;
     for (const key of Array.from(set)) {
       if (key.startsWith(`${rowIndex}-`)) set.delete(key);
@@ -1637,31 +1758,31 @@ ${lines.join('\n')}`;
 
   /** Update summary counts from current sheet data. */
   private updateSummary(): void {
-    if (!this.result?.summary) return;
+    if (!this.currentPageState.result?.summary) return;
     let total = 0, valid = 0;
-    for (const sheet of this.result.employeeSheets ?? []) {
+    for (const sheet of this.currentPageState.result.employeeSheets ?? []) {
       const rows = sheet.rows ?? [];
       for (const r of rows) {
         total++;
         if (r.isValid) valid++;
       }
     }
-    this.result.summary.totalRows = total;
-    this.result.summary.validRows = valid;
-    this.result.summary.invalidRows = total - valid;
+    this.currentPageState.result.summary.totalRows = total;
+    this.currentPageState.result.summary.validRows = valid;
+    this.currentPageState.result.summary.invalidRows = total - valid;
   }
 
   exportCorrected(): void {
     const corrections = this.getCorrectionsForExport();
-    if (!this.selectedFile || corrections.length === 0) {
-      this.error = 'Select at least one row to reverse and ensure a file was validated.';
+    if (!this.currentPageState.selectedFile || corrections.length === 0) {
+      this.currentPageState.error = 'Select at least one row to reverse and ensure a file was validated.';
       return;
     }
     this.exporting = true;
-    this.error = null;
-    this.validator.correctAndExport(this.selectedFile, corrections).subscribe({
+    this.currentPageState.error = null;
+    this.validator.correctAndExport(this.currentPageState.selectedFile, corrections).subscribe({
       next: (blob) => {
-        const base = this.result?.fileName?.replace(/\.(xlsx?|xls)$/i, '') || 'export';
+        const base = this.currentPageState.result?.fileName?.replace(/\.(xlsx?|xls)$/i, '') || 'export';
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1671,7 +1792,7 @@ ${lines.join('\n')}`;
         this.exporting = false;
       },
       error: (err) => {
-        this.error = err.error?.message || err.message || 'Export failed.';
+        this.currentPageState.error = err.error?.message || err.message || 'Export failed.';
         this.exporting = false;
       }
     });

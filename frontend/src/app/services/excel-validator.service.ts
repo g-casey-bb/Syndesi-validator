@@ -9,9 +9,11 @@ const API_URL = 'http://localhost:3000/api';
 export class ExcelValidatorService {
   constructor(private http: HttpClient) {}
 
-  validateFile(file: File): Observable<ValidationResult> {
+  validateFile(file: File, options?: { sheetName?: string; sheetType?: 'employees' | 'training' }): Observable<ValidationResult> {
     const formData = new FormData();
     formData.append('file', file);
+    if (options?.sheetName) formData.append('sheetName', options.sheetName);
+    if (options?.sheetType) formData.append('sheetType', options.sheetType);
     return this.http.post<ValidationResult>(`${API_URL}/validate`, formData);
   }
 
