@@ -1304,11 +1304,11 @@ ${lines.join('\n')}`;
     });
   }
 
-  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → Agency Employees, Instructor → Instructor. */
+  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → the sheet that was selected and imported (first in result), Instructor → Instructor. */
   getSheetForTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): EmployeeSheetResult | undefined {
     const sheets = this.currentPageState.result?.employeeSheets ?? [];
     if (tabId === 'Employees') return sheets.find(s => s.name === 'Core Employees');
-    if (tabId === 'Agency Employees') return sheets.find(s => s.name === 'Agency Employees');
+    if (tabId === 'Agency Employees') return sheets[0];
     return sheets.find(s => s.name === 'Instructor');
   }
 
