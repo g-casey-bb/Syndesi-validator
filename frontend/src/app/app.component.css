@@ -1105,6 +1105,36 @@
   min-width: 0;
 }
 
+.asset-row-draggable {
+  cursor: grab;
+}
+.asset-row-draggable:active {
+  cursor: grabbing;
+}
+
+.asset-row-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.35rem;
+  padding: 0.2rem;
+  cursor: grab;
+  user-select: none;
+  color: var(--syndesi-text-muted, #666);
+}
+.asset-row-drag-handle-svg {
+  width: 0.2rem;
+  height: 0.2rem;
+}
+.asset-row-draggable:active .asset-row-drag-handle {
+  cursor: grabbing;
+}
+.asset-row-drag-handle:hover {
+  color: var(--syndesi-primary);
+}
+.asset-data-filter-option.drag-over {
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .sheet-card {
   background: var(--syndesi-surface);
   border: 1px solid var(--syndesi-border);
@@ -1304,12 +1334,14 @@
   display: none;
 }
 
-/* Temporarily show Skill column in Asset Data table */
-.results-table-assets th.col-skill-hidden.col-skill-visible,
-.results-table-assets td.col-skill-hidden.col-skill-visible {
-  display: table-cell !important;
-  width: 10%;
-  min-width: 5rem;
+/* Asset table: narrow first column for drag handle (25% of original size) */
+.results-table-assets th.col-drag-handle,
+.results-table-assets td.col-drag-handle {
+  width: 0.4rem;
+  min-width: 0.4rem;
+  max-width: 0.4rem;
+  padding: 0.15rem 0.1rem;
+  vertical-align: middle;
 }
 
 .results-table.cols-9 th.col-actions,

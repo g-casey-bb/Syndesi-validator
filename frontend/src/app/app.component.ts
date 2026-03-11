@@ -307,6 +307,12 @@ export class AppComponent implements OnInit {
     this.cdr.markForCheck();
   }
 
+  /** True if the sheet name appears to be for instructors, employees, agency workers, training, business unit or sites (default such sheets to unticked in the import dialog). */
+  private looksLikePeopleOrTrainingSheet(sheetName: string): boolean {
+    const lower = (sheetName ?? '').trim().toLowerCase();
+    return /instructor|employee|agency|training|business\s*unit|sites/.test(lower);
+  }
+
   toggleImportSheetSelected(sheetName: string): void {
     this.importSheetsSelected[sheetName] = !this.importSheetsSelected[sheetName];
     this.cdr.markForCheck();
@@ -396,6 +402,7 @@ export class AppComponent implements OnInit {
           summary: { totalRows: allAssetRows.length, validRows: validCount, invalidRows: allAssetRows.length - validCount, duplicates: 0 },
         };
         this.currentPageState.importedFileLabel = combinedSheetName;
+        this.currentPageState.assetSheetDisplayOrder = null;
         this.runClientValidationForAllSheets();
         this.updateSummary();
         this.setAssetsSubTab('Asset Data');
@@ -569,6 +576,7 @@ export class AppComponent implements OnInit {
     const result = this.buildValidationResultFromSheetData(data, sheetName, this.topLevelTab);
     this.currentPageState.result = result;
     this.currentPageState.importedFileLabel = sheetName;
+    if (this.topLevelTab === 'Assets') this.currentPageState.assetSheetDisplayOrder = null;
     this.runClientValidationForAllSheets();
     this.updateSummary();
     if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
@@ -1630,7 +1638,9 @@ export class AppComponent implements OnInit {
         : [];
       this.importSheetsList = names;
       this.importSheetsSelected = {};
-      names.forEach((name: string) => { this.importSheetsSelected[name] = true; });
+      names.forEach((name: string) => {
+        this.importSheetsSelected[name] = !this.looksLikePeopleOrTrainingSheet(name);
+      });
       this.showImportSheetsDialog = true;
       this.importSheetsError = null;
       this.cdr.markForCheck();
@@ -2099,6 +2109,7 @@ ${lines.join('\n')}`;
     s.trainingShowOnlyInvalid = false;
     s.assetsTabShowOnlyInvalid = false;
     s.assetsTabFilterInvalidRowIndices = null;
+    s.assetSheetDisplayOrder = null;
     if (this.topLevelTab === 'Employees') s.employeesSubTab = 'Import';
     else if (this.topLevelTab === 'Agency Workers') s.agencySubTab = 'Import';
     else if (this.topLevelTab === 'Users') s.usersSubTab = 'Import';
@@ -2761,6 +2772,10 @@ ${lines.join('\n')}`;
     const current = this.sortState[this.assetSortKey];
     const nextDir = current?.key === key && current?.dir === 'asc' ? 'desc' : 'asc';
     this.sortState[this.assetSortKey] = { key, dir: nextDir };
+    const sheet = this.getAssetSheet();
+    if (sheet?.rows?.length) {
+      this.currentPageState.assetSheetDisplayOrder = this.getSortedAssetRows(sheet);
+    }
     this.cdr.markForCheck();
   }
 
@@ -2785,7 +2800,8 @@ ${lines.join('\n')}`;
   }
 
   getFilteredAssetRows(sheet: AssetSheetResult): AssetRow[] {
-    let rows = this.getSortedAssetRows(sheet);
+    const cached = this.currentPageState.assetSheetDisplayOrder;
+    let rows = (cached != null && cached.length > 0) ? [...cached] : this.getSortedAssetRows(sheet);
     if (this.currentPageState.assetsTabShowOnlyInvalid && this.currentPageState.assetsTabFilterInvalidRowIndices != null) {
       const set = new Set(this.currentPageState.assetsTabFilterInvalidRowIndices);
       rows = rows.filter(row => set.has(row.rowIndex));
@@ -2848,6 +2864,41 @@ ${lines.join('\n')}`;
     this.cdr.markForCheck();
   }
 
+  /** Drag source: store row index so we can find the row on drop. */
+  onAssetRowDragStart(event: DragEvent, row: AssetRow): void {
+    if (!event.dataTransfer) return;
+    event.dataTransfer.setData('text/plain', String(row.rowIndex));
+    event.dataTransfer.effectAllowed = 'move';
+  }
+
+  /** Allow drop on filter options. */
+  onAssetFilterDragOver(event: DragEvent): void {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  /** Drop a row onto a filter: set the row's hidden Skill value to the filter (Unassigned = clear, skill name = set). */
+  onAssetFilterDrop(event: DragEvent, sheet: AssetSheetResult, filterValue: 'All' | 'Unassigned' | string): void {
+    event.preventDefault();
+    const raw = event.dataTransfer?.getData('text/plain');
+    if (raw == null || raw === '') return;
+    const rowIndex = parseInt(raw, 10);
+    if (Number.isNaN(rowIndex)) return;
+    const row = sheet.rows.find(r => r.rowIndex === rowIndex);
+    if (!row) return;
+    if (filterValue === 'All') return;
+    if (filterValue === 'Unassigned') {
+      row.sourceSheetName = '';
+    } else {
+      row.sourceSheetName = filterValue;
+    }
+    row.skillValidationError = undefined;
+    this.runClientValidationForAllSheets();
+    this.onAssetCellEdit(row);
+    this.updateSummary();
+    this.cdr.markForCheck();
+  }
+
   /** Recompute row validity after editing Make, Model or Asset ID. Skill (single-sheet) is validated against Maintenance Skills list separately. */
   onAssetCellEdit(row: AssetRow): void {
     const mandatoryOk = !!(row.make?.trim() && row.model?.trim() && row.assetId?.trim());
@@ -2862,7 +2913,7 @@ ${lines.join('\n')}`;
       const sheet = this.getAssetSheet();
       if (sheet?.rows?.length) {
         this.currentPageState.assetsTabFilterInvalidRowIndices = sheet.rows
-          .filter(row => !row.isValid)
+          .filter(row => !row.isValid || this.hasAssetRowMayNeedAttention(row))
           .map(r => r.rowIndex);
       } else {
         this.currentPageState.assetsTabFilterInvalidRowIndices = [];

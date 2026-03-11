@@ -1,4 +1,4 @@
-import { ValidationResult } from './validation-result';
+import { ValidationResult, AssetRow } from './validation-result';
 
 export type PageKey = 'Employees' | 'Agency Workers' | 'Users' | 'Instructors' | 'Training' | 'Assets';
 
@@ -79,6 +79,8 @@ export interface PageImportState {
   assetsSkillFilter: 'All' | 'Unassigned' | string;
   /** When true, filter panel shows only All, Unassigned and skills that have at least one row. */
   assetsFilterPanelCollapsed: boolean;
+  /** Cached row order for Asset Data table; only updated when column sort is clicked. */
+  assetSheetDisplayOrder: AssetRow[] | null;
   rowsToReverse: Record<string, Set<number>>;
   confirmedCells: Record<string, Set<string>>;
   nameCheckReversedProbability: Record<string, Record<number, number>>;
@@ -122,6 +124,7 @@ export function createDefaultPageImportState(): PageImportState {
     assetsTabFilterInvalidRowIndices: null,
     assetsSkillFilter: 'All',
     assetsFilterPanelCollapsed: true,
+    assetSheetDisplayOrder: null,
     rowsToReverse: {},
     confirmedCells: {},
     nameCheckReversedProbability: {},

@@ -846,15 +846,15 @@
                       <span class="asset-data-filter-toggle-icon">{{ currentPageState.assetsFilterPanelCollapsed ? '▶' : '▼' }}</span>
                     </button>
                     <div class="asset-data-filter-options">
-                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'All'" (click)="setAssetsSkillFilter('All')">All ({{ getAssetSkillCounts(sheet).all }})</button>
-                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'Unassigned'" (click)="setAssetsSkillFilter('Unassigned')">Unassigned ({{ getAssetSkillCounts(sheet).unassigned }})</button>
+                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'All'" (click)="setAssetsSkillFilter('All')" (dragover)="onAssetFilterDragOver($event)" (drop)="onAssetFilterDrop($event, sheet, 'All')">All ({{ getAssetSkillCounts(sheet).all }})</button>
+                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'Unassigned'" (click)="setAssetsSkillFilter('Unassigned')" (dragover)="onAssetFilterDragOver($event)" (drop)="onAssetFilterDrop($event, sheet, 'Unassigned')">Unassigned ({{ getAssetSkillCounts(sheet).unassigned }})</button>
                       @if (currentPageState.assetsFilterPanelCollapsed) {
                         @for (skill of getSkillsWithPopulatedRows(sheet); track skill) {
-                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
+                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)" (dragover)="onAssetFilterDragOver($event)" (drop)="onAssetFilterDrop($event, sheet, skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
                         }
                       } @else {
                         @for (skill of skillsList; track skill) {
-                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
+                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)" (dragover)="onAssetFilterDragOver($event)" (drop)="onAssetFilterDrop($event, sheet, skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
                         }
                       }
                     </div>
@@ -866,48 +866,90 @@
                       <table class="results-table results-table-assets cols-9">
                         <thead>
                           <tr>
-                            <th class="sortable" (click)="setAssetSort('make')" role="button" tabindex="0">Make
+                            <th class="col-drag-handle" aria-label="Drag"></th>
+                            <th class="sortable" (click)="setAssetSort('make')" role="button" tabindex="0" (keydown.enter)="setAssetSort('make')" (keydown.space)="setAssetSort('make'); $event.preventDefault()">Make
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('make') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('make') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('model')" role="button" tabindex="0">Model
+                            <th class="sortable" (click)="setAssetSort('model')" role="button" tabindex="0" (keydown.enter)="setAssetSort('model')" (keydown.space)="setAssetSort('model'); $event.preventDefault()">Model
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('model') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('model') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('assetId')" role="button" tabindex="0">Asset ID
+                            <th class="sortable" (click)="setAssetSort('assetId')" role="button" tabindex="0" (keydown.enter)="setAssetSort('assetId')" (keydown.space)="setAssetSort('assetId'); $event.preventDefault()">Asset ID
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('assetId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('assetId') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('abaCode')" role="button" tabindex="0">ABA Code
+                            <th class="sortable" (click)="setAssetSort('abaCode')" role="button" tabindex="0" (keydown.enter)="setAssetSort('abaCode')" (keydown.space)="setAssetSort('abaCode'); $event.preventDefault()">ABA Code
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('abaCode') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('abaCode') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('attachment')" role="button" tabindex="0">Attachment
+                            <th class="sortable" (click)="setAssetSort('attachment')" role="button" tabindex="0" (keydown.enter)="setAssetSort('attachment')" (keydown.space)="setAssetSort('attachment'); $event.preventDefault()">Attachment
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('attachment') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('attachment') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('control')" role="button" tabindex="0">Control
+                            <th class="sortable" (click)="setAssetSort('control')" role="button" tabindex="0" (keydown.enter)="setAssetSort('control')" (keydown.space)="setAssetSort('control'); $event.preventDefault()">Control
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('control') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('control') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('energySource')" role="button" tabindex="0">Energy Source
+                            <th class="sortable" (click)="setAssetSort('energySource')" role="button" tabindex="0" (keydown.enter)="setAssetSort('energySource')" (keydown.space)="setAssetSort('energySource'); $event.preventDefault()">Energy Source
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('energySource') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('energySource') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('loadCentre')" role="button" tabindex="0">Load Centre
+                            <th class="sortable" (click)="setAssetSort('loadCentre')" role="button" tabindex="0" (keydown.enter)="setAssetSort('loadCentre')" (keydown.space)="setAssetSort('loadCentre'); $event.preventDefault()">Load Centre
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('loadCentre') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('loadCentre') === 'desc'">↓</span></span>
                             </th>
-                            <th class="sortable" (click)="setAssetSort('ratedCapacity')" role="button" tabindex="0">Rated Capacity
+                            <th class="sortable" (click)="setAssetSort('ratedCapacity')" role="button" tabindex="0" (keydown.enter)="setAssetSort('ratedCapacity')" (keydown.space)="setAssetSort('ratedCapacity'); $event.preventDefault()">Rated Capacity
                               <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('ratedCapacity') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('ratedCapacity') === 'desc'">↓</span></span>
                             </th>
-                            <th class="col-skill-hidden col-skill-visible" aria-hidden="false">Skill</th>
+                            <th class="col-skill-hidden" aria-hidden="true">Skill</th>
                             <th class="col-actions"></th>
                           </tr>
                         </thead>
                         <tbody>
                           @for (row of getFilteredAssetRows(sheet); track row.rowIndex) {
-                            <tr [class.valid-row]="row.isValid" [class.invalid-row]="!row.isValid">
-                              <td [class.cell-overlay-error]="!row.isValid && !(row.make ?? '').trim()">
-                                <input class="cell-input" type="text" [value]="row.make" (input)="row.make = $any($event.target).value; onAssetCellEdit(row)" />
+                            <tr class="asset-row-draggable" draggable="true" [class.valid-row]="row.isValid" [class.invalid-row]="!row.isValid" (dragstart)="onAssetRowDragStart($event, row)">
+                              <td class="col-drag-handle">
+                                <span class="asset-row-drag-handle" title="Drag to assign skill" aria-label="Drag row">
+                                  <svg class="asset-row-drag-handle-svg" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <circle cx="8" cy="6" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="8" cy="18" r="1.5"/>
+                                    <circle cx="16" cy="6" r="1.5"/><circle cx="16" cy="12" r="1.5"/><circle cx="16" cy="18" r="1.5"/>
+                                  </svg>
+                                </span>
                               </td>
-                              <td [class.cell-overlay-error]="!row.isValid && !(row.model ?? '').trim()">
-                                <input class="cell-input" type="text" [value]="row.model" (input)="row.model = $any($event.target).value; onAssetCellEdit(row)" />
+                              <td [attr.title]="(!row.isValid && !(row.make ?? '').trim()) ? 'Missing: Make' : null" [class.cell-overlay-error]="!row.isValid && !(row.make ?? '').trim()">
+                                <div class="cell-with-icon">
+                                  <input class="cell-input" type="text" [value]="row.make" (input)="row.make = $any($event.target).value; onAssetCellEdit(row)" />
+                                  @if (!row.isValid && !(row.make ?? '').trim()) {
+                                    <span class="cell-invalid-icon" title="Missing: Make" role="img" aria-label="Validation error">
+                                      <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                        <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                        <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                      </svg>
+                                    </span>
+                                  }
+                                </div>
                               </td>
-                              <td [class.cell-overlay-error]="!row.isValid && !(row.assetId ?? '').trim()">
-                                <input class="cell-input" type="text" [value]="row.assetId" (input)="row.assetId = $any($event.target).value; onAssetCellEdit(row)" />
+                              <td [attr.title]="(!row.isValid && !(row.model ?? '').trim()) ? 'Missing: Model' : null" [class.cell-overlay-error]="!row.isValid && !(row.model ?? '').trim()">
+                                <div class="cell-with-icon">
+                                  <input class="cell-input" type="text" [value]="row.model" (input)="row.model = $any($event.target).value; onAssetCellEdit(row)" />
+                                  @if (!row.isValid && !(row.model ?? '').trim()) {
+                                    <span class="cell-invalid-icon" title="Missing: Model" role="img" aria-label="Validation error">
+                                      <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                        <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                        <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                      </svg>
+                                    </span>
+                                  }
+                                </div>
+                              </td>
+                              <td [attr.title]="(!row.isValid && !(row.assetId ?? '').trim()) ? 'Missing: Asset ID' : null" [class.cell-overlay-error]="!row.isValid && !(row.assetId ?? '').trim()">
+                                <div class="cell-with-icon">
+                                  <input class="cell-input" type="text" [value]="row.assetId" (input)="row.assetId = $any($event.target).value; onAssetCellEdit(row)" />
+                                  @if (!row.isValid && !(row.assetId ?? '').trim()) {
+                                    <span class="cell-invalid-icon" title="Missing: Asset ID" role="img" aria-label="Validation error">
+                                      <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                        <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                        <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                      </svg>
+                                    </span>
+                                  }
+                                </div>
                               </td>
                               <td>
                                 <input class="cell-input" type="text" [value]="row.abaCode" (input)="row.abaCode = $any($event.target).value" />
@@ -916,7 +958,13 @@
                                 <div class="cell-with-icon">
                                   <input class="cell-input" type="text" [value]="row.attachment" (input)="row.attachment = $any($event.target).value; onAssetCellEdit(row)" />
                                   @if (hasAssetRowMayNeedAttention(row)) {
-                                    <span class="cell-invalid-icon" title="Attachment is optional but highly advised" role="img" aria-label="Advisory">⚠</span>
+                                    <span class="cell-invalid-icon" title="Attachment is optional but highly advised" role="img" aria-label="Advisory">
+                                      <svg class="cell-warning-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path fill="#EAB308" stroke="#1a1a1a" stroke-width="1.2" d="M12 2L2 20h20L12 2z"/>
+                                        <path stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" d="M12 8v6"/>
+                                        <circle cx="12" cy="17" r="1.2" fill="#1a1a1a"/>
+                                      </svg>
+                                    </span>
                                   }
                                 </div>
                               </td>
@@ -932,7 +980,7 @@
                               <td>
                                 <input class="cell-input" type="text" [value]="row.ratedCapacity" (input)="row.ratedCapacity = $any($event.target).value" />
                               </td>
-                              <td class="col-skill-hidden col-skill-visible" aria-hidden="false" [class.cell-overlay-error]="hasAssetSkillValidationError(row)" [attr.title]="row.skillValidationError ?? null">{{ row.sourceSheetName ?? '' }}</td>
+                              <td class="col-skill-hidden" aria-hidden="true" [class.cell-overlay-error]="hasAssetSkillValidationError(row)" [attr.title]="row.skillValidationError ?? null">{{ row.sourceSheetName ?? '' }}</td>
                               <td class="col-actions">
                                 @if (hasAssetRowMayNeedAttention(row)) {
                                   <button type="button" class="cell-confirm-btn" title="Dismiss warning" (click)="dismissAssetRowWarning(row)" aria-label="Dismiss warning">
