@@ -1,13 +1,21 @@
-import { Component, ChangeDetectorRef, OnInit, HostListener } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectorRef, OnInit, HostListener, ElementRef, NgZone } from '@angular/core';
+import { CommonModule, Location } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Router, RouterModule } from '@angular/router';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
 import { ExcelValidatorService } from './services/excel-validator.service';
 import { revalidateSheetRows, revalidateRow } from './services/row-validation.service';
-import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, SpaceErrorType } from './models/validation-result';
+import { ValidationResult, EmployeeSheetResult, ValidationRow, TrainingRow, TrainingSheetResult, AssetRow, AssetSheetResult, SpaceErrorType } from './models/validation-result';
 import { PageKey, PageImportState, createDefaultPageImportState, PAGE_PATHS, pathToPageKey, COLUMN_MAPPING_COLUMNS, COLUMN_MAPPING_COLUMNS_TRAINING, ColumnMappingKey, TrainingColumnMappingKey, ExcelColumnOption } from './models/page-import-state';
 import * as XLSX from 'xlsx';
+
+export interface Company {
+  id: string;
+  name: string;
+  employeeId: boolean;
+  dob: boolean;
+  email: boolean;
+}
 
 @Component({
   selector: 'app-root',
@@ -21,6 +29,8 @@ export class AppComponent implements OnInit {
   pageState: Record<PageKey, PageImportState> = {
     'Employees': createDefaultPageImportState(),
     'Agency Workers': createDefaultPageImportState(),
+    'Users': createDefaultPageImportState(),
+    'Instructors': createDefaultPageImportState(),
     'Training': createDefaultPageImportState(),
     'Assets': createDefaultPageImportState(),
   };
@@ -41,17 +51,22 @@ export class AppComponent implements OnInit {
   /** Sort state key for the Training table (single sheet). */
   readonly trainingSortKey = 'training';
 
+  /** Sort state key for the Assets table (single sheet). */
+  readonly assetSortKey = 'assets';
+
   /** Top-level pages (four). */
   readonly topLevelTabs: { id: PageKey; label: string }[] = [
+    { id: 'Users', label: 'Users' },
+    { id: 'Instructors', label: 'Instructors' },
     { id: 'Employees', label: 'Employees' },
     { id: 'Agency Workers', label: 'Agency Workers' },
-    { id: 'Training', label: 'Training' },
     { id: 'Assets', label: 'Assets' },
+    { id: 'Training', label: 'Training' },
   ];
 
   get employeesSubTabs(): { id: 'Import' | 'Employee Data'; label: string }[] {
     const s = this.currentPageState;
-    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
     return [
       { id: 'Import', label: importLabel },
       { id: 'Employee Data', label: 'Employee Data' },
@@ -60,19 +75,46 @@ export class AppComponent implements OnInit {
 
   get agencySubTabs(): { id: 'Import' | 'Agency Worker Data'; label: string }[] {
     const s = this.currentPageState;
-    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
     return [
       { id: 'Import', label: importLabel },
       { id: 'Agency Worker Data', label: 'Agency Worker Data' },
     ];
   }
 
+  get usersSubTabs(): { id: 'Import' | 'User Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
+    return [
+      { id: 'Import', label: importLabel },
+      { id: 'User Data', label: 'User Data' },
+    ];
+  }
+
+  get instructorsSubTabs(): { id: 'Import' | 'Instructor Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
+    return [
+      { id: 'Import', label: importLabel },
+      { id: 'Instructor Data', label: 'Instructor Data' },
+    ];
+  }
+
   get trainingSubTabs(): { id: 'Import' | 'Training Data'; label: string }[] {
     const s = this.currentPageState;
-    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (s.importedFileLabel ?? 'Import');
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
     return [
       { id: 'Import', label: importLabel },
       { id: 'Training Data', label: 'Training Data' },
+    ];
+  }
+
+  get assetsSubTabs(): { id: 'Import' | 'Asset Data'; label: string }[] {
+    const s = this.currentPageState;
+    const importLabel = (s.excelPreviewHtml && s.selectedFile?.name) ? s.selectedFile.name : (this.workspaceUploadedFileName ?? s.importedFileLabel ?? 'Import');
+    return [
+      { id: 'Import', label: importLabel },
+      { id: 'Asset Data', label: 'Asset Data' },
     ];
   }
 
@@ -85,6 +127,688 @@ export class AppComponent implements OnInit {
     this._cachedPreviewHtml = html;
     this._cachedSanitizedPreview = html ? this.sanitizer.bypassSecurityTrustHtml(html) : null;
     return this._cachedSanitizedPreview;
+  }
+
+  /** Base URL for the Excel Import app (iframe). Default: ExcelImport-project dev server.
+   * Run Excel Import on port 4200; run Syndesi on another port (e.g. ng serve --port 4201) to avoid conflict. */
+  readonly excelImportAppUrl = 'http://localhost:4200';
+
+  /** Iframe src for the Google Sheets Workspace uploader. Set only on init and when user closes the file, so the iframe is not reloaded on tab/page change and the uploaded file persists. */
+  workspaceIframeSrc!: SafeResourceUrl;
+
+  /** Loading state when requesting sheet data from Workspace iframe. */
+  workspaceImportLoading = false;
+  workspaceImportError: string | null = null;
+  private workspaceImportRequestId: string | null = null;
+
+  /** True when the Workspace iframe has loaded and is displaying a sheet (so Import can be used). */
+  workspaceSheetDisplayed = false;
+
+  /** Dialog: sheet format may be wrong; user can continue or cancel. */
+  workspaceFormatWarningDialogOpen = false;
+  private workspaceFormatWarningPending: { sheetName: string; data: string[][] } | null = null;
+
+  /** "Import selected sheets" dialog: list of sheet names from iframe, and which are selected. */
+  showImportSheetsDialog = false;
+  importSheetsList: string[] = [];
+  importSheetsSelected: Record<string, boolean> = {};
+  importSheetsLoading = false;
+  importSheetsError: string | null = null;
+  private pendingSheetNamesRequest: { requestId: string } | null = null;
+  private workspaceIframeRefForImportSheets: HTMLIFrameElement | null = null;
+  /** When importing multiple sheets we collect SYNDESI_SHEET_DATA responses here. */
+  private importSelectedSheetsPending: {
+    batchId: string;
+    sheetNames: string[];
+    collected: { sheetName: string; data: string[][] }[];
+    waiting: Set<string>;
+    errors: string[];
+  } | null = null;
+
+  /** Submit placeholder dialog: which page was submitted (null = closed). */
+  submitDialogPage: PageKey | null = null;
+
+  /** Uploaded file name from the workspace iframe; used for the Import tab label when a file has been uploaded. */
+  workspaceUploadedFileName: string | null = null;
+
+  /** Incremented when user closes the uploaded file (X on tab); used to force iframe reload. */
+  workspaceIframeReloadKey = 0;
+
+  /** Submit button is disabled until this page's attention counters are 0. For Assets: both "need attention" and "may need attention" must be 0. */
+  isSubmitDisabled(): boolean {
+    switch (this.topLevelTab) {
+      case 'Assets':
+        return this.getAssetsAttentionCount() !== 0 || this.getAssetsMayNeedAttentionCount() !== 0;
+      case 'Employees':
+        return this.getEmployeeAttentionCount() !== 0;
+      case 'Agency Workers':
+        return this.getAgencyAttentionCount() !== 0;
+      case 'Users':
+        return this.getUsersAttentionCount() !== 0;
+      case 'Instructors':
+        return this.getInstructorsAttentionCount() !== 0;
+      case 'Training':
+        return this.getTrainingAttentionCount() !== 0;
+      default:
+        return true;
+    }
+  }
+
+  openSubmitDialog(page: PageKey): void {
+    this.submitDialogPage = page;
+    this.cdr.markForCheck();
+  }
+
+  closeSubmitDialog(): void {
+    this.submitDialogPage = null;
+    this.cdr.markForCheck();
+  }
+
+  /** Close the uploaded file in the workspace iframe: clear label and reload iframe so it shows the upload prompt again. */
+  closeWorkspaceFile(event: Event): void {
+    event.stopPropagation();
+    this.workspaceUploadedFileName = null;
+    this.workspaceSheetDisplayed = false;
+    this.workspaceImportError = null;
+    this.workspaceIframeReloadKey++;
+    this.workspaceIframeSrc = this.sanitizer.bypassSecurityTrustResourceUrl(`${this.excelImportAppUrl}/excel-google-workspace?r=${this.workspaceIframeReloadKey}`);
+    this.cdr.markForCheck();
+  }
+
+  private setWorkspaceIframeSrc(): void {
+    this.workspaceIframeSrc = this.sanitizer.bypassSecurityTrustResourceUrl(`${this.excelImportAppUrl}/excel-google-workspace?r=${this.workspaceIframeReloadKey}`);
+  }
+
+  /** Ask the Workspace iframe for the currently viewed sheet data, then populate the Data tab. User must confirm by clicking Import. */
+  importFromWorkspace(iframeRef: HTMLIFrameElement | ElementRef<HTMLIFrameElement> | null): void {
+    const iframe = iframeRef && ('nativeElement' in iframeRef ? (iframeRef as ElementRef<HTMLIFrameElement>).nativeElement : iframeRef);
+    const win = iframe?.contentWindow;
+    if (!win) {
+      this.workspaceImportError = 'Load a spreadsheet in the viewer first (upload an XLSX above).';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.workspaceImportError = null;
+    this.workspaceImportLoading = true;
+    const requestId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}`;
+    this.workspaceImportRequestId = requestId;
+    const origin = new URL(this.excelImportAppUrl).origin;
+    const listener = (event: MessageEvent) => {
+      const d = event.data;
+      if (d?.type !== 'SYNDESI_SHEET_DATA' || d?.requestId !== requestId) return;
+      window.removeEventListener('message', listener);
+      this.workspaceImportRequestId = null;
+      this.workspaceImportLoading = false;
+      if (d.error) {
+        this.workspaceImportError = d.error;
+        this.cdr.markForCheck();
+        return;
+      }
+      const rawData = d.data;
+      const data = Array.isArray(rawData) ? rawData : (rawData != null && Array.isArray((rawData as { rows?: unknown }).rows) ? (rawData as { rows: string[][] }).rows : []);
+      const sheetName = (d.sheetName != null ? String(d.sheetName) : 'Sheet1') || 'Sheet1';
+      this.ngZone.run(() => {
+        if (!this.isSheetStructureSensible(data)) {
+          this.workspaceFormatWarningPending = { sheetName, data };
+          this.workspaceFormatWarningDialogOpen = true;
+        } else {
+          this.applyWorkspaceSheetData(sheetName, data);
+        }
+        this.cdr.detectChanges();
+      });
+    };
+    window.addEventListener('message', listener);
+    win.postMessage({ type: 'SYNDESI_GET_CURRENT_SHEET_DATA', requestId }, origin);
+    setTimeout(() => {
+      if (this.workspaceImportRequestId === requestId) {
+        window.removeEventListener('message', listener);
+        this.workspaceImportRequestId = null;
+        this.workspaceImportLoading = false;
+        this.workspaceImportError = 'Request timed out. Make sure a sheet is loaded in the viewer.';
+        this.cdr.markForCheck();
+      }
+    }, 15000);
+  }
+
+  /** Open "Select which sheets to import" dialog; request sheet names from iframe. */
+  openImportSheetsDialog(iframeRef: HTMLIFrameElement | ElementRef<HTMLIFrameElement> | null): void {
+    const iframe = iframeRef && ('nativeElement' in iframeRef ? (iframeRef as ElementRef<HTMLIFrameElement>).nativeElement : iframeRef);
+    const win = iframe?.contentWindow;
+    if (!win) {
+      this.workspaceImportError = 'Load a spreadsheet in the viewer first (upload an XLSX above).';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.workspaceIframeRefForImportSheets = iframe;
+    this.importSheetsError = null;
+    this.importSheetsLoading = true;
+    const requestId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `names-${Date.now()}`;
+    this.pendingSheetNamesRequest = { requestId };
+    const origin = new URL(this.excelImportAppUrl).origin;
+    win.postMessage({ type: 'SYNDESI_GET_SHEET_NAMES', requestId }, origin);
+    setTimeout(() => {
+      if (this.pendingSheetNamesRequest?.requestId === requestId) {
+        this.pendingSheetNamesRequest = null;
+        this.importSheetsLoading = false;
+        this.workspaceImportError = 'Request timed out. Upload a file in the viewer first.';
+        this.cdr.markForCheck();
+      }
+    }, 5000);
+    this.cdr.markForCheck();
+  }
+
+  closeImportSheetsDialog(): void {
+    this.showImportSheetsDialog = false;
+    this.importSheetsList = [];
+    this.importSheetsSelected = {};
+    this.importSheetsError = null;
+    this.workspaceIframeRefForImportSheets = null;
+    this.pendingSheetNamesRequest = null;
+    this.cdr.markForCheck();
+  }
+
+  toggleImportSheetSelected(sheetName: string): void {
+    this.importSheetsSelected[sheetName] = !this.importSheetsSelected[sheetName];
+    this.cdr.markForCheck();
+  }
+
+  get selectedImportSheetsCount(): number {
+    return this.importSheetsList.filter(name => this.importSheetsSelected[name]).length;
+  }
+
+  /** Request data for each selected sheet from iframe, then merge and apply. */
+  confirmImportSelectedSheets(): void {
+    const selected = this.importSheetsList.filter(name => this.importSheetsSelected[name]);
+    if (selected.length === 0) {
+      this.importSheetsError = 'Select at least one sheet.';
+      this.cdr.markForCheck();
+      return;
+    }
+    const iframe = this.workspaceIframeRefForImportSheets;
+    const win = iframe?.contentWindow;
+    if (!win) {
+      this.importSheetsError = 'Viewer connection lost. Please try again.';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.importSheetsError = null;
+    const batchId = `sel-${Date.now()}`;
+    this.importSelectedSheetsPending = {
+      batchId,
+      sheetNames: selected,
+      collected: [],
+      waiting: new Set(selected),
+      errors: [],
+    };
+    this.showImportSheetsDialog = false;
+    this.importSheetsLoading = true;
+    const origin = new URL(this.excelImportAppUrl).origin;
+    // Send each sheet request with a short delay so the iframe processes them one-by-one and each HTTP request is for the correct sheet
+    selected.forEach((sheetName, index) => {
+      const normalizedName = sheetName.trim().replace(/\s+/g, ' ');
+      const requestId = `${batchId}-${sheetName}`;
+      const payload = { type: 'SYNDESI_GET_SHEET_DATA_BY_NAME' as const, requestId, sheetName: normalizedName };
+      if (index === 0) {
+        win.postMessage(payload, origin);
+      } else {
+        setTimeout(() => win.postMessage(payload, origin), index * 80);
+      }
+    });
+    this.importSheetsList = [];
+    this.importSheetsSelected = {};
+    this.workspaceIframeRefForImportSheets = null;
+    this.cdr.markForCheck();
+  }
+
+  /** Merge multiple sheets into one result and apply (combine rows per page type). Sets sourceSheetName on each row for the hidden "Skill" column. */
+  private applyWorkspaceSheetDataFromSheets(sheets: { sheetName: string; data: string[][] }[]): void {
+    if (!sheets.length) return;
+    const page = this.topLevelTab;
+    const combinedSheetName = sheets.map(s => s.sheetName).join(', ');
+
+    if (page === 'Assets') {
+      const allAssetRows: AssetRow[] = [];
+      for (const { sheetName, data } of sheets) {
+        if (!data?.length) continue;
+        const result = this.buildValidationResultFromSheetData(data, sheetName, page);
+        const sheetRows = result.assetSheet?.rows ?? [];
+        const resolvedSkill = this.resolveAssetSkillFromSheet(sheetName, data);
+        for (const row of sheetRows) {
+          row.sourceSheetName = resolvedSkill;
+          allAssetRows.push(row);
+        }
+      }
+      if (allAssetRows.length > 0) {
+        allAssetRows.forEach((row, i) => { row.rowIndex = i + 1; });
+        const validCount = allAssetRows.filter(r => r.isValid).length;
+        this.currentPageState.result = {
+          fileName: combinedSheetName,
+          sheetsProcessed: sheets.length,
+          employeeSheets: [],
+          assetSheet: {
+            name: combinedSheetName,
+            rowCount: allAssetRows.length,
+            valid: validCount === allAssetRows.length,
+            rows: allAssetRows,
+          },
+          errors: [],
+          warnings: [],
+          summary: { totalRows: allAssetRows.length, validRows: validCount, invalidRows: allAssetRows.length - validCount, duplicates: 0 },
+        };
+        this.currentPageState.importedFileLabel = combinedSheetName;
+        this.runClientValidationForAllSheets();
+        this.updateSummary();
+        this.setAssetsSubTab('Asset Data');
+      }
+    } else if (page === 'Training') {
+      const allTrainingRows: TrainingRow[] = [];
+      let skillOptions: string[] = [];
+      for (const { sheetName, data } of sheets) {
+        if (!data?.length) continue;
+        const result = this.buildValidationResultFromSheetData(data, sheetName, page);
+        const training = result.trainingSheet;
+        if (training?.rows?.length) {
+          for (const row of training.rows) {
+            row.sourceSheetName = sheetName;
+            allTrainingRows.push(row);
+          }
+          if (training.skillOptions?.length) skillOptions = [...new Set([...skillOptions, ...training.skillOptions])].sort();
+        }
+      }
+      if (allTrainingRows.length > 0) {
+        allTrainingRows.forEach((row, i) => { row.rowIndex = i + 1; });
+        const validCount = allTrainingRows.filter(r => r.isValid).length;
+        this.currentPageState.result = {
+          fileName: combinedSheetName,
+          sheetsProcessed: sheets.length,
+          employeeSheets: [],
+          trainingSheet: {
+            name: combinedSheetName,
+            rowCount: allTrainingRows.length,
+            valid: validCount === allTrainingRows.length,
+            rows: allTrainingRows,
+            skillOptions: skillOptions.length ? skillOptions : undefined,
+          },
+          errors: [],
+          warnings: [],
+          summary: { totalRows: allTrainingRows.length, validRows: validCount, invalidRows: allTrainingRows.length - validCount, duplicates: 0 },
+        };
+        this.currentPageState.importedFileLabel = combinedSheetName;
+        this.runClientValidationForAllSheets();
+        this.updateSummary();
+        this.setTrainingSubTab('Training Data');
+      }
+    } else {
+      const allEmployeeRows: ValidationRow[] = [];
+      const sheetDisplayName = page === 'Users' ? 'Core Users' : page === 'Instructors' ? 'Core Instructors' : 'Core Employees';
+      for (const { sheetName, data } of sheets) {
+        if (!data?.length) continue;
+        const result = this.buildValidationResultFromSheetData(data, sheetName, page);
+        const empSheet = result.employeeSheets?.[0];
+        if (empSheet?.rows?.length) {
+          for (const row of empSheet.rows) {
+            row.sourceSheetName = sheetName;
+            allEmployeeRows.push(row);
+          }
+        }
+      }
+      if (allEmployeeRows.length > 0) {
+        allEmployeeRows.forEach((row, i) => { row.rowIndex = i + 1; });
+        const idLabel = 'Employee ID';
+        const employeeSheet: EmployeeSheetResult = {
+          name: sheetDisplayName,
+          headers: ['Employee ID', 'First Name', 'Last Name', 'Email', 'DOB', 'Site', 'Shift'],
+          rowCount: allEmployeeRows.length,
+          valid: allEmployeeRows.every(r => r.isValid),
+          rows: allEmployeeRows,
+          missingFieldErrors: [],
+          duplicateErrors: [],
+          employeeIdentifierColumnLabel: idLabel,
+        };
+        this.currentPageState.result = {
+          fileName: combinedSheetName,
+          sheetsProcessed: sheets.length,
+          employeeSheets: [employeeSheet],
+          errors: [],
+          warnings: [],
+          summary: {
+            totalRows: allEmployeeRows.length,
+            validRows: allEmployeeRows.filter(r => r.isValid).length,
+            invalidRows: allEmployeeRows.filter(r => !r.isValid).length,
+            duplicates: 0,
+          },
+        };
+        this.currentPageState.importedFileLabel = combinedSheetName;
+        this.runClientValidationForAllSheets();
+        this.updateSummary();
+        if (page === 'Employees') this.setEmployeesSubTab('Employee Data');
+        else if (page === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
+        else if (page === 'Users') this.setUsersSubTab('User Data');
+        else if (page === 'Instructors') this.setInstructorsSubTab('Instructor Data');
+      }
+    }
+    this.cdr.markForCheck();
+  }
+
+  /** True if the sheet has a single header row, every column with data has a header, and no second header row. */
+  private isSheetStructureSensible(data: string[][]): boolean {
+    if (!data || data.length < 1) return false;
+    const headers = data[0];
+    if (!headers || !Array.isArray(headers)) return false;
+    const nonEmptyHeaders = headers.filter(h => (h != null && String(h).trim() !== ''));
+    if (nonEmptyHeaders.length < 2) return false;
+
+    // Every column that has data in any body row must have a non-empty header
+    const numCols = Math.max(headers.length, ...data.slice(1).map(r => (r?.length ?? 0)));
+    for (let c = 0; c < numCols; c++) {
+      const hasDataInColumn = data.slice(1).some(row => (row[c] != null && String(row[c]).trim() !== ''));
+      if (hasDataInColumn) {
+        const headerVal = (headers[c] != null ? String(headers[c]) : '').trim();
+        if (headerVal === '') return false;
+      }
+    }
+
+    // Multiple header rows: if row 1 looks like another header row (separate sets of data), not sensible
+    if (data.length >= 2 && this.looksLikeHeaderRow(data[1])) return false;
+
+    return true;
+  }
+
+  /** True if the row looks like a header row (short labels, not data), suggesting a second set of data. */
+  private looksLikeHeaderRow(row: string[]): boolean {
+    if (!row || !Array.isArray(row)) return false;
+    const nonEmpty = row.filter(c => (c != null && String(c).trim() !== ''));
+    if (nonEmpty.length < 2) return false;
+    const trimmed = nonEmpty.map(c => String(c).trim());
+    const allShort = trimmed.every(c => c.length < 50);
+    const notMostlyNumeric = trimmed.filter(c => !/^\d+([.,]\d+)?$/.test(c) && c !== '').length >= 2;
+    return allShort && notMostlyNumeric;
+  }
+
+  closeWorkspaceFormatWarningDialog(): void {
+    this.workspaceFormatWarningDialogOpen = false;
+    this.workspaceFormatWarningPending = null;
+    this.cdr.markForCheck();
+  }
+
+  confirmWorkspaceFormatWarningAndImport(): void {
+    const pending = this.workspaceFormatWarningPending;
+    this.workspaceFormatWarningDialogOpen = false;
+    this.workspaceFormatWarningPending = null;
+    if (pending) this.applyWorkspaceSheetData(pending.sheetName, pending.data);
+    this.cdr.markForCheck();
+  }
+
+  /** Find the first row index that contains Make, Model and Asset ID as column headers (case-insensitive). Rows above are ignored when importing Assets. */
+  private findAssetHeaderRow(rows: string[][]): number {
+    if (!rows?.length) return -1;
+    const makeTerms = ['make'];
+    const modelTerms = ['model'];
+    const assetIdTerms = ['asset id', 'asset id:', 'assetid', 'asset number'];
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || !Array.isArray(row)) continue;
+      const cells = row.map(c => (c ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' '));
+      const hasMake = makeTerms.some(t => cells.some(c => c === t || (c && (c.includes(t) || t.includes(c)))));
+      const hasModel = modelTerms.some(t => cells.some(c => c === t || (c && (c.includes(t) || t.includes(c)))));
+      const hasAssetId = assetIdTerms.some(t => cells.some(c => c === t || (c && (c.includes(t) || t.includes(c)))));
+      if (hasMake && hasModel && hasAssetId) return r;
+    }
+    return -1;
+  }
+
+  private applyWorkspaceSheetData(sheetName: string, data: string[][]): void {
+    if (!data || !Array.isArray(data)) {
+      this.workspaceImportError = 'No sheet data received.';
+      return;
+    }
+    if (data.length < 1) {
+      this.workspaceImportError = 'Sheet has no header row.';
+      return;
+    }
+    const result = this.buildValidationResultFromSheetData(data, sheetName, this.topLevelTab);
+    this.currentPageState.result = result;
+    this.currentPageState.importedFileLabel = sheetName;
+    this.runClientValidationForAllSheets();
+    this.updateSummary();
+    if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
+    else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
+    else if (this.topLevelTab === 'Users') this.setUsersSubTab('User Data');
+    else if (this.topLevelTab === 'Instructors') this.setInstructorsSubTab('Instructor Data');
+    else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
+    else if (this.topLevelTab === 'Assets') this.setAssetsSubTab('Asset Data');
+  }
+
+  private buildValidationResultFromSheetData(rows: string[][], sheetName: string, page: PageKey): ValidationResult {
+    if (!rows || rows.length < 1) {
+      if (page === 'Training') {
+        return {
+          fileName: sheetName,
+          sheetsProcessed: 1,
+          employeeSheets: [],
+          trainingSheet: { name: sheetName, rowCount: 0, valid: true, rows: [] },
+          errors: [],
+          warnings: [],
+          summary: { totalRows: 0, validRows: 0, invalidRows: 0, duplicates: 0 },
+        };
+      }
+      if (page === 'Assets') {
+        return {
+          fileName: sheetName,
+          sheetsProcessed: 1,
+          employeeSheets: [],
+          assetSheet: { name: sheetName, rowCount: 0, valid: true, rows: [] },
+          errors: [],
+          warnings: [],
+          summary: { totalRows: 0, validRows: 0, invalidRows: 0, duplicates: 0 },
+        };
+      }
+      const emptySheetName = page === 'Users' ? 'Core Users' : page === 'Instructors' ? 'Core Instructors' : 'Core Employees';
+      const emptySheet: EmployeeSheetResult = {
+        name: emptySheetName,
+        headers: ['Employee ID', 'First Name', 'Last Name'],
+        rowCount: 0,
+        valid: true,
+        rows: [],
+        missingFieldErrors: [],
+        duplicateErrors: [],
+        employeeIdentifierColumnLabel: 'Employee ID',
+      };
+      return {
+        fileName: sheetName,
+        sheetsProcessed: 1,
+        employeeSheets: [emptySheet],
+        errors: [],
+        warnings: [],
+        summary: { totalRows: 0, validRows: 0, invalidRows: 0, duplicates: 0 },
+      };
+    }
+    /** For Assets: find first row that contains Make, Model and Asset ID as column headers; ignore any rows above it. */
+    let headerRowIndex = 0;
+    let headers = rows[0].map(h => (h ?? '').trim().replace(/\s+/g, ' '));
+    let dataRows = rows.slice(1);
+    if (page === 'Assets') {
+      const assetHeaderRow = this.findAssetHeaderRow(rows);
+      if (assetHeaderRow >= 0) {
+        headerRowIndex = assetHeaderRow;
+        headers = rows[assetHeaderRow].map(h => (h ?? '').trim().replace(/\s+/g, ' '));
+        dataRows = rows.slice(assetHeaderRow + 1);
+      }
+    }
+    /** Find column index: exact match first, then header includes candidate (e.g. "Employee Number" matches "employee number"). */
+    const findCol = (names: string[]): number => {
+      const lower = headers.map(h => h.toLowerCase());
+      for (const n of names) {
+        const key = n.toLowerCase().replace(/\s+/g, ' ').trim();
+        let i = lower.findIndex(h => h === key);
+        if (i >= 0) return i;
+        i = lower.findIndex(h => (h && key && (h.includes(key) || key.includes(h))));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    /** Safe cell value from row by column index. */
+    const cell = (row: string[], col: number): string => (col >= 0 && col < row.length ? (row[col] ?? '') : '').toString().trim();
+    if (page === 'Training') {
+      const skillCol = findCol(['skill', 'skills']); const sCol = skillCol >= 0 ? skillCol : 0;
+      const eventCol = findCol(['event type', 'event']); const eCol = eventCol >= 0 ? eventCol : 1;
+      const dateCol = findCol(['test date', 'date']); const dCol = dateCol >= 0 ? dateCol : 2;
+      const resultCol = findCol(['result', 'results']); const rCol = resultCol >= 0 ? resultCol : 3;
+      const empCol = findCol(['employee number', 'employee id', 'employee no']); const empColT = empCol >= 0 ? empCol : 4;
+      const trainingDataRows = dataRows.filter(row => {
+        const s = cell(row, sCol);
+        const e = cell(row, eCol);
+        const d = cell(row, dCol);
+        const r = cell(row, rCol);
+        const emp = cell(row, empColT);
+        return !!(s || e || d || r || emp);
+      });
+      const trainingRows: TrainingRow[] = trainingDataRows.map((row, i) => {
+        const skill = cell(row, sCol);
+        const eventType = cell(row, eCol);
+        const testDate = cell(row, dCol);
+        const resultVal = cell(row, rCol);
+        const employeeId = cell(row, empColT);
+        const isValid = !!(skill && eventType && testDate && resultVal && employeeId);
+        return {
+          rowIndex: i + 1,
+          skill,
+          skillRaw: (row[sCol] ?? '').toString(),
+          eventType,
+          eventTypeRaw: (row[eCol] ?? '').toString(),
+          testDate,
+          testDateRaw: (row[dCol] ?? '').toString(),
+          result: resultVal,
+          employeeId,
+          isValid,
+        };
+      });
+      const skillOptions = [...new Set(trainingRows.map(r => r.skill).filter(Boolean))].sort();
+      const validCount = trainingRows.filter(r => r.isValid).length;
+      return {
+        fileName: sheetName,
+        sheetsProcessed: 1,
+        employeeSheets: [],
+        trainingSheet: { name: sheetName, rowCount: trainingRows.length, valid: validCount === trainingRows.length, rows: trainingRows, skillOptions },
+        errors: [],
+        warnings: [],
+        summary: { totalRows: trainingRows.length, validRows: validCount, invalidRows: trainingRows.length - validCount, duplicates: 0 },
+      };
+    }
+    if (page === 'Assets') {
+      const makeCol = findCol(['make']);
+      const modelCol = findCol(['model']);
+      const assetIdCol = findCol(['asset id', 'asset id:', 'assetid', 'asset number']);
+      const abaCol = findCol(['aba code', 'aba', 'aba code:']);
+      const attachmentCol = findCol(['attachment', 'attach']);
+      const controlCol = findCol(['control']);
+      const energyCol = findCol(['energy source', 'energy']);
+      const loadCentreCol = findCol(['load centre', 'load center', 'load centre:', 'load center:']);
+      const ratedCapacityCol = findCol(['rated capacity', 'rated capacity:', 'capacity']);
+      const skillCol = findCol(['skill', 'skill name', 'skills']);
+      const mCol = makeCol >= 0 ? makeCol : 0;
+      const modCol = modelCol >= 0 ? modelCol : 1;
+      const aIdCol = assetIdCol >= 0 ? assetIdCol : 2;
+      const assetDataRows = dataRows.filter(row => {
+        const make = cell(row, mCol);
+        const model = cell(row, modCol);
+        const assetId = cell(row, aIdCol);
+        return !!(make || model || assetId);
+      });
+      const assetRows: AssetRow[] = assetDataRows.map((row, i) => {
+        const make = cell(row, mCol);
+        const model = cell(row, modCol);
+        const assetId = cell(row, aIdCol);
+        const abaCode = abaCol >= 0 ? cell(row, abaCol) : '';
+        const attachment = attachmentCol >= 0 ? cell(row, attachmentCol) : '';
+        const control = controlCol >= 0 ? cell(row, controlCol) : '';
+        const energySource = energyCol >= 0 ? cell(row, energyCol) : '';
+        const loadCentre = loadCentreCol >= 0 ? cell(row, loadCentreCol) : '';
+        const ratedCapacity = ratedCapacityCol >= 0 ? cell(row, ratedCapacityCol) : '';
+        const skillFromColumn = skillCol >= 0 ? cell(row, skillCol) : '';
+        const isValid = !!(make && model && assetId);
+        const attachmentEmpty = !attachment;
+        return {
+          rowIndex: i + 1,
+          make,
+          model,
+          assetId,
+          abaCode,
+          attachment,
+          control,
+          energySource,
+          loadCentre,
+          ratedCapacity,
+          isValid,
+          attachmentEmpty,
+          sourceSheetName: skillFromColumn || undefined,
+        };
+      });
+      const validCount = assetRows.filter(r => r.isValid).length;
+      return {
+        fileName: sheetName,
+        sheetsProcessed: 1,
+        employeeSheets: [],
+        assetSheet: { name: sheetName, rowCount: assetRows.length, valid: validCount === assetRows.length, rows: assetRows },
+        errors: [],
+        warnings: [],
+        summary: { totalRows: assetRows.length, validRows: validCount, invalidRows: assetRows.length - validCount, duplicates: 0 },
+      };
+    }
+    // Map sheet columns to data table: detect by header name, fallback to position (col 0 = ID, 1 = First, 2 = Last, etc.)
+    const empIdCol = findCol(['employee number', 'employee id', 'employee no', 'emp no', 'staff id']);
+    const firstCol = findCol(['first name', 'firstname', 'given name']);
+    const lastCol = findCol(['last name', 'lastname', 'surname', 'family name']);
+    const emailCol = findCol(['email', 'email address']);
+    const dobCol = findCol(['dob', 'date of birth', 'birth date']);
+    const siteCol = findCol(['site', 'sites']);
+    const shiftCol = findCol(['shift', 'shifts']);
+    const eCol = empIdCol >= 0 ? empIdCol : 0;
+    const fCol = firstCol >= 0 ? firstCol : 1;
+    const lCol = lastCol >= 0 ? lastCol : 2;
+    const employeeDataRows = dataRows.filter(row => {
+      const e = cell(row, eCol);
+      const f = cell(row, fCol);
+      const l = cell(row, lCol);
+      return !!(e || f || l);
+    });
+    const validDataRows = employeeDataRows.filter(row => {
+      const e = cell(row, eCol);
+      const f = cell(row, fCol);
+      const l = cell(row, lCol);
+      return !!(e && f && l);
+    });
+    const validationRows: ValidationRow[] = validDataRows.map((row, i) => ({
+      rowIndex: i + 1,
+      employeeId: cell(row, eCol),
+      firstName: cell(row, fCol),
+      lastName: cell(row, lCol),
+      email: emailCol >= 0 ? (row[emailCol] ?? '')?.toString().trim() || undefined : undefined,
+      dob: dobCol >= 0 ? (row[dobCol] ?? '')?.toString().trim() || undefined : undefined,
+      site: siteCol >= 0 ? (row[siteCol] ?? '')?.toString().trim() || undefined : undefined,
+      shift: shiftCol >= 0 ? (row[shiftCol] ?? '')?.toString().trim() || undefined : undefined,
+      isValid: true,
+    }));
+    const headersList = headers.some(h => (h ?? '').trim() !== '') ? headers : ['Employee ID', 'First Name', 'Last Name', 'Email', 'DOB', 'Site', 'Shift'];
+    const sheetDisplayName = page === 'Users' ? 'Core Users' : page === 'Instructors' ? 'Core Instructors' : 'Core Employees';
+    const employeeSheet: EmployeeSheetResult = {
+      name: sheetDisplayName,
+      headers: headersList,
+      rowCount: validationRows.length,
+      valid: true,
+      rows: validationRows,
+      missingFieldErrors: [],
+      duplicateErrors: [],
+      employeeIdentifierColumnLabel: empIdCol >= 0 && headers[empIdCol]?.toLowerCase().includes('number') ? 'Employee Number' : 'Employee ID',
+    };
+    return {
+      fileName: sheetName,
+      sheetsProcessed: 1,
+      employeeSheets: [employeeSheet],
+      errors: [],
+      warnings: [],
+      summary: { totalRows: validationRows.length, validRows: validationRows.length, invalidRows: 0, duplicates: 0 },
+    };
   }
 
   /** Column widths (px) measured from the preview table; used so mapping row and overlay match iframe columns. */
@@ -133,7 +857,7 @@ export class AppComponent implements OnInit {
   maintenancePageOpen = false;
 
   /** Active tab on Maintenance page. */
-  maintenanceTab: 'Skills' | 'Testing' = 'Skills';
+  maintenanceTab: 'Skills' | 'Company Setup' | 'Testing' = 'Skills';
 
   /** Skills list from Maintenance upload, persisted in localStorage. */
   skillsList: string[] = [];
@@ -153,6 +877,21 @@ export class AppComponent implements OnInit {
   private readonly TESTING_CUSTOMER_KEY = 'syndesi_testing_customer';
   private readonly TESTING_SITE_KEY = 'syndesi_testing_site';
   private readonly TESTING_USER_KEY = 'syndesi_testing_user';
+  private readonly COMPANIES_STORAGE_KEY = 'syndesi_companies';
+
+  /** Company Setup (Maintenance): list of companies, persisted in localStorage. */
+  companies: Company[] = [];
+
+  /** Company dialog: open when editing or adding a company. */
+  companyDialogOpen = false;
+  /** Id of company being edited, or null when adding new. */
+  companyDialogEditingId: string | null = null;
+  companyDialogForm: { name: string; employeeId: boolean; dob: boolean; email: boolean } = {
+    name: '',
+    employeeId: false,
+    dob: false,
+    email: false,
+  };
 
   /** Unknown Skill dialog: when + is clicked for unrecognised skill. */
   unknownSkillDialogOpen = false;
@@ -221,12 +960,18 @@ export class AppComponent implements OnInit {
     private cdr: ChangeDetectorRef,
     private http: HttpClient,
     private sanitizer: DomSanitizer,
-    private router: Router
+    private router: Router,
+    private location: Location,
+    private ngZone: NgZone
   ) {}
 
   ngOnInit(): void {
+    this.setWorkspaceIframeSrc();
     this.syncPageFromRouter();
     this.router.events.subscribe(() => this.syncPageFromRouter());
+    this.ngZone.runOutsideAngular(() => {
+      window.addEventListener('popstate', () => this.ngZone.run(() => this.syncPageFromLocation()));
+    });
     try {
       this.chatGptApiKey = localStorage.getItem(this.CHATGPT_API_KEY_STORAGE) ?? '';
       this.skillPhotosFolder = localStorage.getItem(this.SKILL_PHOTOS_FOLDER_STORAGE) ?? '';
@@ -253,9 +998,27 @@ export class AppComponent implements OnInit {
     }
   }
 
-  navigateToPage(page: PageKey): void {
+  /** Sync topLevelTab from browser location (for back/forward). */
+  private syncPageFromLocation(): void {
+    const path = this.location.path().split('?')[0] || '/';
+    const page = pathToPageKey(path);
+    if (page !== this.topLevelTab) {
+      this.topLevelTab = page;
+      this.cdr.markForCheck();
+    }
+  }
+
+  /** Switch to a data page by tab click. Updates state and URL only (no router navigation), so the iframe and its content are not reloaded. */
+  selectPage(page: PageKey): void {
     this.closeMaintenance();
-    this.router.navigate([PAGE_PATHS[page].replace(/^\//, '')]);
+    if (this.topLevelTab === page) return;
+    this.topLevelTab = page;
+    this.location.replaceState(PAGE_PATHS[page]);
+    this.cdr.markForCheck();
+  }
+
+  navigateToPage(page: PageKey): void {
+    this.selectPage(page);
   }
 
   openMaintenance(): void {
@@ -263,6 +1026,7 @@ export class AppComponent implements OnInit {
     this.loadSkillsFromStorage();
     this.loadSkillQueriesFromStorage();
     this.loadTestingFromStorage();
+    this.loadCompaniesFromStorage();
     this.cdr.markForCheck();
   }
 
@@ -341,6 +1105,7 @@ export class AppComponent implements OnInit {
       const skills = this.parseSkillsJson(content);
       this.skillsList = skills;
       this.saveSkillsToStorage(skills);
+      this.runClientValidationForAllSheets();
       this.cdr.markForCheck();
     };
     reader.readAsText(file);
@@ -380,6 +1145,105 @@ export class AppComponent implements OnInit {
 
   toggleSkillsListExpanded(): void {
     this.skillsListExpanded = !this.skillsListExpanded;
+    this.cdr.markForCheck();
+  }
+
+  loadCompaniesFromStorage(): void {
+    try {
+      const raw = localStorage.getItem(this.COMPANIES_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      this.companies = Array.isArray(parsed)
+        ? parsed.map((c: Record<string, unknown>) => ({
+            id: String(c['id'] ?? crypto.randomUUID?.() ?? `c-${Date.now()}`),
+            name: String(c['name'] ?? ''),
+            employeeId: !!c['employeeId'],
+            dob: !!c['dob'],
+            email: !!c['email'],
+          }))
+        : [];
+    } catch {
+      this.companies = [];
+    }
+  }
+
+  private saveCompaniesToStorage(): void {
+    try {
+      localStorage.setItem(this.COMPANIES_STORAGE_KEY, JSON.stringify(this.companies));
+    } catch { /* ignore */ }
+  }
+
+  openCompanyDialog(company?: Company): void {
+    if (company) {
+      this.companyDialogEditingId = company.id;
+      this.companyDialogForm = {
+        name: company.name,
+        employeeId: company.employeeId,
+        dob: company.dob,
+        email: company.email,
+      };
+    } else {
+      this.companyDialogEditingId = null;
+      this.companyDialogForm = { name: '', employeeId: false, dob: false, email: false };
+    }
+    this.companyDialogOpen = true;
+    this.cdr.markForCheck();
+  }
+
+  closeCompanyDialog(): void {
+    this.companyDialogOpen = false;
+    this.companyDialogEditingId = null;
+    this.cdr.markForCheck();
+  }
+
+  saveCompanyDialog(): void {
+    const name = this.companyDialogForm.name.trim();
+    if (!name) return;
+    if (this.companyDialogEditingId !== null) {
+      const idx = this.companies.findIndex(c => c.id === this.companyDialogEditingId);
+      if (idx >= 0) {
+        this.companies[idx] = {
+          id: this.companies[idx].id,
+          name,
+          employeeId: this.companyDialogForm.employeeId,
+          dob: this.companyDialogForm.dob,
+          email: this.companyDialogForm.email,
+        };
+      }
+    } else {
+      this.companies.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `c-${Date.now()}`,
+        name,
+        employeeId: this.companyDialogForm.employeeId,
+        dob: this.companyDialogForm.dob,
+        email: this.companyDialogForm.email,
+      });
+    }
+    this.saveCompaniesToStorage();
+    this.closeCompanyDialog();
+    this.cdr.markForCheck();
+  }
+
+  addCompany(): void {
+    this.openCompanyDialog();
+  }
+
+  setCompanyDialogName(value: string): void {
+    this.companyDialogForm = { ...this.companyDialogForm, name: value };
+    this.cdr.markForCheck();
+  }
+
+  setCompanyDialogEmployeeId(value: boolean): void {
+    this.companyDialogForm = { ...this.companyDialogForm, employeeId: value };
+    this.cdr.markForCheck();
+  }
+
+  setCompanyDialogDob(value: boolean): void {
+    this.companyDialogForm = { ...this.companyDialogForm, dob: value };
+    this.cdr.markForCheck();
+  }
+
+  setCompanyDialogEmail(value: boolean): void {
+    this.companyDialogForm = { ...this.companyDialogForm, email: value };
     this.cdr.markForCheck();
   }
 
@@ -460,6 +1324,7 @@ export class AppComponent implements OnInit {
     if (!this.skillsList.includes(name)) {
       this.skillsList = [...this.skillsList, name];
       this.saveSkillsToStorage(this.skillsList);
+      this.runClientValidationForAllSheets();
     }
     this.skillQueriesAddedIds.add(id);
     this.saveSkillQueriesAddedIdsToStorage();
@@ -540,6 +1405,7 @@ export class AppComponent implements OnInit {
       if (skillName && !this.skillsList.includes(skillName)) {
         this.skillsList = [...this.skillsList, skillName];
         this.saveSkillsToStorage(this.skillsList);
+        this.runClientValidationForAllSheets();
       }
       this.skillQueries = this.skillQueries.filter(x => x.id !== id);
       this.saveSkillQueriesToStorage();
@@ -735,6 +1601,76 @@ export class AppComponent implements OnInit {
     } else if (this.unknownSkillDialogOpen) {
       this.closeUnknownSkillDialog();
     }
+  }
+
+  /** When the Workspace iframe loads a file, it asks for the current page so it can show the best-matching sheet by default. Also handle sheet displayed / not displayed. */
+  @HostListener('window:message', ['$event'])
+  onWorkspacePageContextRequest(event: MessageEvent): void {
+    const d = event.data;
+    if (d?.type === 'SYNDESI_SHEET_DISPLAYED') {
+      this.workspaceSheetDisplayed = true;
+      this.cdr.markForCheck();
+      return;
+    }
+    if (d?.type === 'SYNDESI_SHEET_NOT_DISPLAYED') {
+      this.workspaceSheetDisplayed = false;
+      this.cdr.markForCheck();
+      return;
+    }
+    if (d?.type === 'SYNDESI_UPLOADED_FILE_NAME' && d?.fileName != null) {
+      this.workspaceUploadedFileName = String(d.fileName).trim() || null;
+      this.cdr.markForCheck();
+      return;
+    }
+    if (d?.type === 'SYNDESI_SHEET_NAMES' && d?.requestId && this.pendingSheetNamesRequest?.requestId === d.requestId) {
+      this.pendingSheetNamesRequest = null;
+      this.importSheetsLoading = false;
+      const names = Array.isArray(d.sheetNames)
+        ? d.sheetNames.map((n: unknown) => String(n ?? '').trim().replace(/\s+/g, ' '))
+        : [];
+      this.importSheetsList = names;
+      this.importSheetsSelected = {};
+      names.forEach((name: string) => { this.importSheetsSelected[name] = true; });
+      this.showImportSheetsDialog = true;
+      this.importSheetsError = null;
+      this.cdr.markForCheck();
+      return;
+    }
+    if (d?.type === 'SYNDESI_SHEET_DATA' && this.importSelectedSheetsPending && d?.requestId?.startsWith(this.importSelectedSheetsPending.batchId)) {
+      const pending = this.importSelectedSheetsPending;
+      // Match by requestId (format "batchId-sheetName") so we clear the correct slot even if backend returns a different sheetName string
+      const requestedSheetName = d.requestId.length > pending.batchId.length + 1 ? d.requestId.slice(pending.batchId.length + 1) : (d.sheetName != null ? String(d.sheetName) : '');
+      const sheetName = d.sheetName != null ? String(d.sheetName) : requestedSheetName;
+      if (d.error) {
+        pending.errors.push(d.error);
+      } else {
+        const rawData = d.data;
+        const data = Array.isArray(rawData) ? rawData : (rawData != null && Array.isArray((rawData as { rows?: unknown }).rows) ? (rawData as { rows: string[][] }).rows : []);
+        pending.collected.push({ sheetName, data });
+      }
+      pending.waiting.delete(requestedSheetName);
+      if (pending.waiting.size === 0) {
+        this.importSelectedSheetsPending = null;
+        this.importSheetsLoading = false;
+        if (pending.errors.length > 0) {
+          this.workspaceImportError = pending.errors[0];
+        } else if (pending.collected.length > 0) {
+          this.ngZone.run(() => {
+            this.applyWorkspaceSheetDataFromSheets(pending.collected);
+            this.cdr.detectChanges();
+          });
+        }
+        this.cdr.markForCheck();
+      }
+      return;
+    }
+    if (d?.type !== 'SYNDESI_REQUEST_PAGE_CONTEXT' || !d?.requestId || !event.source) return;
+    try {
+      (event.source as Window).postMessage(
+        { type: 'SYNDESI_PAGE_CONTEXT', requestId: d.requestId, page: this.topLevelTab },
+        event.origin
+      );
+    } catch (_) {}
   }
 
   /** Build list of { firstName, lastName } from sheet rows (for ChatGPT). */
@@ -1154,11 +2090,21 @@ ${lines.join('\n')}`;
     s.importedFileLabel = null;
     s.employeeTabShowOnlyInvalid = false;
     s.agencyTabShowOnlyInvalid = false;
+    s.usersTabShowOnlyInvalid = false;
+    s.instructorsTabShowOnlyInvalid = false;
     s.employeeTabFilterInvalidRowIndices = null;
     s.agencyTabFilterInvalidRowIndices = null;
+    s.usersTabFilterInvalidRowIndices = null;
+    s.instructorsTabFilterInvalidRowIndices = null;
+    s.trainingShowOnlyInvalid = false;
+    s.assetsTabShowOnlyInvalid = false;
+    s.assetsTabFilterInvalidRowIndices = null;
     if (this.topLevelTab === 'Employees') s.employeesSubTab = 'Import';
     else if (this.topLevelTab === 'Agency Workers') s.agencySubTab = 'Import';
+    else if (this.topLevelTab === 'Users') s.usersSubTab = 'Import';
+    else if (this.topLevelTab === 'Instructors') s.instructorsSubTab = 'Import';
     else if (this.topLevelTab === 'Training') s.trainingSubTab = 'Import';
+    else if (this.topLevelTab === 'Assets') s.assetsSubTab = 'Import';
     this.cdr.markForCheck();
   }
 
@@ -1200,8 +2146,12 @@ ${lines.join('\n')}`;
     this.currentPageState.nameCheckError = null;
     this.currentPageState.employeeTabShowOnlyInvalid = false;
     this.currentPageState.agencyTabShowOnlyInvalid = false;
+    this.currentPageState.usersTabShowOnlyInvalid = false;
+    this.currentPageState.instructorsTabShowOnlyInvalid = false;
     this.currentPageState.employeeTabFilterInvalidRowIndices = null;
     this.currentPageState.agencyTabFilterInvalidRowIndices = null;
+    this.currentPageState.usersTabFilterInvalidRowIndices = null;
+    this.currentPageState.instructorsTabFilterInvalidRowIndices = null;
     this.currentPageState.trainingShowOnlyInvalid = false;
 
     const sheetType = this.topLevelTab === 'Training' ? 'training' : 'employees';
@@ -1231,6 +2181,8 @@ ${lines.join('\n')}`;
         this.currentPageState.importedFileLabel = this.currentPageState.selectedFile?.name ?? null;
         if (this.topLevelTab === 'Employees') this.setEmployeesSubTab('Employee Data');
         else if (this.topLevelTab === 'Agency Workers') this.setAgencySubTab('Agency Worker Data');
+        else if (this.topLevelTab === 'Users') this.setUsersSubTab('User Data');
+        else if (this.topLevelTab === 'Instructors') this.setInstructorsSubTab('Instructor Data');
         else if (this.topLevelTab === 'Training') this.setTrainingSubTab('Training Data');
       },
       error: (err) => {
@@ -1304,11 +2256,13 @@ ${lines.join('\n')}`;
     });
   }
 
-  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → the sheet that was selected and imported (first in result), Instructor → Instructor. */
-  getSheetForTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor'): EmployeeSheetResult | undefined {
+  /** Get the sheet for the given tab. Employees → Core Employees, Agency Employees → first sheet, Instructor → Instructor, Users → Core Users, Instructors → Core Instructors. */
+  getSheetForTab(tabId: 'Employees' | 'Agency Employees' | 'Instructor' | 'Users' | 'Instructors'): EmployeeSheetResult | undefined {
     const sheets = this.currentPageState.result?.employeeSheets ?? [];
     if (tabId === 'Employees') return sheets.find(s => s.name === 'Core Employees');
     if (tabId === 'Agency Employees') return sheets[0];
+    if (tabId === 'Users') return sheets.find(s => s.name === 'Core Users');
+    if (tabId === 'Instructors') return sheets.find(s => s.name === 'Core Instructors');
     return sheets.find(s => s.name === 'Instructor');
   }
 
@@ -1321,6 +2275,31 @@ ${lines.join('\n')}`;
     this.currentPageState.activeTab = tabId;
   }
 
+  /** True when we're on any of the six data pages (so the workspace upload section should exist). Use this for @if so the iframe is not destroyed when switching between pages. */
+  get isOnDataPage(): boolean {
+    return (
+      this.topLevelTab === 'Employees' ||
+      this.topLevelTab === 'Agency Workers' ||
+      this.topLevelTab === 'Users' ||
+      this.topLevelTab === 'Instructors' ||
+      this.topLevelTab === 'Training' ||
+      this.topLevelTab === 'Assets'
+    );
+  }
+
+  /** True when the current page has the Import sub-tab selected (used to show the shared workspace upload section). */
+  isImportSubTabActive(): boolean {
+    switch (this.topLevelTab) {
+      case 'Employees': return this.currentPageState.employeesSubTab === 'Import';
+      case 'Agency Workers': return this.currentPageState.agencySubTab === 'Import';
+      case 'Users': return this.currentPageState.usersSubTab === 'Import';
+      case 'Instructors': return this.currentPageState.instructorsSubTab === 'Import';
+      case 'Training': return this.currentPageState.trainingSubTab === 'Import';
+      case 'Assets': return this.currentPageState.assetsSubTab === 'Import';
+      default: return false;
+    }
+  }
+
   setEmployeesSubTab(id: 'Import' | 'Employee Data'): void {
     this.currentPageState.employeesSubTab = id;
   }
@@ -1329,8 +2308,20 @@ ${lines.join('\n')}`;
     this.currentPageState.agencySubTab = id;
   }
 
+  setUsersSubTab(id: 'Import' | 'User Data'): void {
+    this.currentPageState.usersSubTab = id;
+  }
+
+  setInstructorsSubTab(id: 'Import' | 'Instructor Data'): void {
+    this.currentPageState.instructorsSubTab = id;
+  }
+
   setTrainingSubTab(id: 'Import' | 'Training Data'): void {
     this.currentPageState.trainingSubTab = id;
+  }
+
+  setAssetsSubTab(id: 'Import' | 'Asset Data'): void {
+    this.currentPageState.assetsSubTab = id;
   }
 
   /** Revert the Import tab label and clear file selection so a new file can be chosen. Does not clear result or data tabs. */
@@ -1354,6 +2345,14 @@ ${lines.join('\n')}`;
     return this.getSheetForTab('Agency Employees');
   }
 
+  getUsersSheet(): EmployeeSheetResult | undefined {
+    return this.getSheetForTab('Users');
+  }
+
+  getInstructorsSheet(): EmployeeSheetResult | undefined {
+    return this.getSheetForTab('Instructors');
+  }
+
   getEmployeeAttentionCount(): number {
     const sheet = this.getEmployeeSheet();
     if (!sheet?.rows?.length) return 0;
@@ -1366,6 +2365,49 @@ ${lines.join('\n')}`;
     if (!sheet?.rows?.length) return 0;
     const idLabel = this.getIdLabel(sheet);
     return sheet.rows.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel)).length;
+  }
+
+  getUsersAttentionCount(): number {
+    const sheet = this.getUsersSheet();
+    if (!sheet?.rows?.length) return 0;
+    const idLabel = this.getIdLabel(sheet);
+    return sheet.rows.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel)).length;
+  }
+
+  getInstructorsAttentionCount(): number {
+    const sheet = this.getInstructorsSheet();
+    if (!sheet?.rows?.length) return 0;
+    const idLabel = this.getIdLabel(sheet);
+    return sheet.rows.filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel)).length;
+  }
+
+  /** Failed validation (invalid row) count for a given top-level page, for display in the header tab label. */
+  getAttentionCountForPage(page: PageKey): number {
+    const state = this.pageState[page];
+    const result = state?.result;
+    if (page === 'Training') {
+      const training = result?.trainingSheet;
+      if (!training?.rows?.length) return 0;
+      return training.rows.filter(r => !r.isValid).length;
+    }
+    if (page === 'Assets') {
+      return this.getAssetsAttentionCount() + this.getAssetsMayNeedAttentionCount();
+    }
+    const sheets = result?.employeeSheets ?? [];
+    const sheet =
+      page === 'Employees' ? sheets.find(s => s.name === 'Core Employees')
+      : page === 'Agency Workers' ? sheets[0]
+      : page === 'Users' ? sheets.find(s => s.name === 'Core Users')
+      : page === 'Instructors' ? sheets.find(s => s.name === 'Core Instructors')
+      : undefined;
+    if (!sheet?.rows?.length) return 0;
+    return sheet.rows.filter(row => !row.isValid).length;
+  }
+
+  /** Header tab label including attention count in brackets when > 0. */
+  getTopLevelTabLabel(tab: { id: PageKey; label: string }): string {
+    const n = this.getAttentionCountForPage(tab.id);
+    return n > 0 ? `${tab.label} (${n})` : tab.label;
   }
 
   toggleEmployeeTabShowFilter(): void {
@@ -1400,6 +2442,42 @@ ${lines.join('\n')}`;
       }
     } else {
       this.currentPageState.agencyTabFilterInvalidRowIndices = null;
+    }
+    this.cdr.markForCheck();
+  }
+
+  toggleUsersTabShowFilter(): void {
+    this.currentPageState.usersTabShowOnlyInvalid = !this.currentPageState.usersTabShowOnlyInvalid;
+    if (this.currentPageState.usersTabShowOnlyInvalid) {
+      const sheet = this.getUsersSheet();
+      if (sheet?.rows?.length) {
+        const idLabel = this.getIdLabel(sheet);
+        this.currentPageState.usersTabFilterInvalidRowIndices = sheet.rows
+          .filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel))
+          .map(r => r.rowIndex);
+      } else {
+        this.currentPageState.usersTabFilterInvalidRowIndices = [];
+      }
+    } else {
+      this.currentPageState.usersTabFilterInvalidRowIndices = null;
+    }
+    this.cdr.markForCheck();
+  }
+
+  toggleInstructorsTabShowFilter(): void {
+    this.currentPageState.instructorsTabShowOnlyInvalid = !this.currentPageState.instructorsTabShowOnlyInvalid;
+    if (this.currentPageState.instructorsTabShowOnlyInvalid) {
+      const sheet = this.getInstructorsSheet();
+      if (sheet?.rows?.length) {
+        const idLabel = this.getIdLabel(sheet);
+        this.currentPageState.instructorsTabFilterInvalidRowIndices = sheet.rows
+          .filter(row => this.hasUnconfirmedRowErrors(row, sheet, idLabel))
+          .map(r => r.rowIndex);
+      } else {
+        this.currentPageState.instructorsTabFilterInvalidRowIndices = [];
+      }
+    } else {
+      this.currentPageState.instructorsTabFilterInvalidRowIndices = null;
     }
     this.cdr.markForCheck();
   }
@@ -1646,6 +2724,155 @@ ${lines.join('\n')}`;
     return training.rows.filter(r => !r.isValid).length;
   }
 
+  getAssetSheet(): AssetSheetResult | null | undefined {
+    return this.currentPageState.result?.assetSheet;
+  }
+
+  getAssetsAttentionCount(): number {
+    const sheet = this.currentPageState.result?.assetSheet;
+    if (!sheet?.rows?.length) return 0;
+    return sheet.rows.filter(r => !r.isValid).length;
+  }
+
+  /** Count of asset rows that may need attention (e.g. attachment empty) and not yet dismissed. */
+  getAssetsMayNeedAttentionCount(): number {
+    const sheet = this.currentPageState.result?.assetSheet;
+    if (!sheet?.rows?.length) return 0;
+    return sheet.rows.filter(r => r.attachmentEmpty && !r.attachmentWarningDismissed).length;
+  }
+
+  /** Dismiss the "may need attention" warning for this asset row (e.g. user acknowledged empty attachment). */
+  dismissAssetRowWarning(row: AssetRow): void {
+    row.attachmentWarningDismissed = true;
+    this.cdr.markForCheck();
+  }
+
+  /** True if this asset row still shows the "may need attention" warning (e.g. attachment empty, not dismissed). */
+  hasAssetRowMayNeedAttention(row: AssetRow): boolean {
+    return !!(row.attachmentEmpty && !row.attachmentWarningDismissed);
+  }
+
+  /** True when the hidden Skill cell has a validation error (Skill value not in Maintenance Skills list). */
+  hasAssetSkillValidationError(row: AssetRow): boolean {
+    return !!row.skillValidationError;
+  }
+
+  setAssetSort(key: string): void {
+    const current = this.sortState[this.assetSortKey];
+    const nextDir = current?.key === key && current?.dir === 'asc' ? 'desc' : 'asc';
+    this.sortState[this.assetSortKey] = { key, dir: nextDir };
+    this.cdr.markForCheck();
+  }
+
+  getAssetSortIcon(key: string): 'asc' | 'desc' | null {
+    const s = this.sortState[this.assetSortKey];
+    if (!s || s.key !== key) return null;
+    return s.dir;
+  }
+
+  getSortedAssetRows(sheet: AssetSheetResult): AssetRow[] {
+    const rows = sheet.rows ?? [];
+    if (rows.length === 0) return rows;
+    const s = this.sortState[this.assetSortKey];
+    const key = s?.key ?? 'make';
+    const dir = s?.dir ?? 'asc';
+    const mult = dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const aVal = String((a as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      const bVal = String((b as unknown as Record<string, unknown>)[key] ?? '').trim().toLowerCase();
+      return aVal.localeCompare(bVal, undefined, { numeric: true }) * mult;
+    });
+  }
+
+  getFilteredAssetRows(sheet: AssetSheetResult): AssetRow[] {
+    let rows = this.getSortedAssetRows(sheet);
+    if (this.currentPageState.assetsTabShowOnlyInvalid && this.currentPageState.assetsTabFilterInvalidRowIndices != null) {
+      const set = new Set(this.currentPageState.assetsTabFilterInvalidRowIndices);
+      rows = rows.filter(row => set.has(row.rowIndex));
+    }
+    const skillFilter = this.currentPageState.assetsSkillFilter;
+    if (skillFilter === 'All') return rows;
+    if (skillFilter === 'Unassigned') return rows.filter(row => this.isAssetRowUnassigned(row));
+    return rows.filter(row => this.assetRowMatchesSkill(row, skillFilter));
+  }
+
+  /** True if the row has no Skill value or the Skill value is not in the Maintenance Skills list. */
+  isAssetRowUnassigned(row: AssetRow): boolean {
+    const skillVal = (row.sourceSheetName ?? '').trim();
+    if (!skillVal) return true;
+    const normalized = this.skillsList.map(s => (s ?? '').trim().toLowerCase());
+    return !normalized.includes(skillVal.toLowerCase());
+  }
+
+  /** True if the row's hidden Skill column matches the given skill name (case-insensitive). */
+  assetRowMatchesSkill(row: AssetRow, skillName: string): boolean {
+    const rowSkill = (row.sourceSheetName ?? '').trim().toLowerCase();
+    const filterSkill = (skillName ?? '').trim().toLowerCase();
+    return rowSkill === filterSkill;
+  }
+
+  setAssetsSkillFilter(value: 'All' | 'Unassigned' | string): void {
+    this.currentPageState.assetsSkillFilter = value;
+    this.cdr.markForCheck();
+  }
+
+  /** Row counts for filter panel: all, unassigned, and per skill (from full sorted list, before invalid-only filter). */
+  getAssetSkillCounts(sheet: AssetSheetResult): { all: number; unassigned: number; bySkill: Record<string, number> } {
+    const rows = this.getSortedAssetRows(sheet);
+    const all = rows.length;
+    let unassigned = 0;
+    const bySkill: Record<string, number> = {};
+    for (const skill of this.skillsList) {
+      bySkill[skill] = 0;
+    }
+    for (const row of rows) {
+      if (this.isAssetRowUnassigned(row)) {
+        unassigned++;
+      } else {
+        const skillVal = (row.sourceSheetName ?? '').trim();
+        const key = this.skillsList.find(s => (s ?? '').trim().toLowerCase() === skillVal.toLowerCase());
+        if (key !== undefined) bySkill[key]++;
+      }
+    }
+    return { all, unassigned, bySkill };
+  }
+
+  /** Skills from the list that have at least one row in the current asset sheet (for collapsed filter view). */
+  getSkillsWithPopulatedRows(sheet: AssetSheetResult): string[] {
+    const { bySkill } = this.getAssetSkillCounts(sheet);
+    return this.skillsList.filter(skill => (bySkill[skill] ?? 0) > 0);
+  }
+
+  toggleAssetsFilterPanelCollapsed(): void {
+    this.currentPageState.assetsFilterPanelCollapsed = !this.currentPageState.assetsFilterPanelCollapsed;
+    this.cdr.markForCheck();
+  }
+
+  /** Recompute row validity after editing Make, Model or Asset ID. Skill (single-sheet) is validated against Maintenance Skills list separately. */
+  onAssetCellEdit(row: AssetRow): void {
+    const mandatoryOk = !!(row.make?.trim() && row.model?.trim() && row.assetId?.trim());
+    row.attachmentEmpty = !(row.attachment ?? '').trim();
+    row.isValid = mandatoryOk && !row.skillValidationError;
+    this.cdr.markForCheck();
+  }
+
+  toggleAssetsTabShowFilter(): void {
+    this.currentPageState.assetsTabShowOnlyInvalid = !this.currentPageState.assetsTabShowOnlyInvalid;
+    if (this.currentPageState.assetsTabShowOnlyInvalid) {
+      const sheet = this.getAssetSheet();
+      if (sheet?.rows?.length) {
+        this.currentPageState.assetsTabFilterInvalidRowIndices = sheet.rows
+          .filter(row => !row.isValid)
+          .map(r => r.rowIndex);
+      } else {
+        this.currentPageState.assetsTabFilterInvalidRowIndices = [];
+      }
+    } else {
+      this.currentPageState.assetsTabFilterInvalidRowIndices = null;
+    }
+    this.cdr.markForCheck();
+  }
+
   hasReversedNameErrors(): boolean {
     return (this.currentPageState.result?.employeeSheets ?? []).some(sheet => (sheet.reversedNameErrors?.length ?? 0) > 0);
   }
@@ -1658,14 +2885,17 @@ ${lines.join('\n')}`;
 
   /** Run client-side validation on all sheets so spaceErrors/onlySpaceErrors are set for display. */
   private runClientValidationForAllSheets(): void {
-    if (!this.currentPageState.result?.employeeSheets) return;
-    for (const sheet of this.currentPageState.result.employeeSheets) {
-      const rows = sheet.rows ?? [];
-      if (rows.length === 0) continue;
-      const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
-      revalidateSheetRows(rows, idLabel);
+    const result = this.currentPageState.result;
+    if (result?.employeeSheets) {
+      for (const sheet of result.employeeSheets) {
+        const rows = sheet.rows ?? [];
+        if (rows.length === 0) continue;
+        const idLabel = sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID';
+        revalidateSheetRows(rows, idLabel);
+      }
     }
     this.revalidateTrainingSheetAgainstSkillsList();
+    this.revalidateAssetSheetSkillAgainstSkillsList();
     this.updateSummary();
   }
 
@@ -1683,6 +2913,49 @@ ${lines.join('\n')}`;
     }
     training.valid = training.rows.every(r => r.isValid);
     this.recomputeTrainingDuplicates();
+  }
+
+  /**
+   * For multi-sheet import: resolve the Skill value for a sheet. If the sheet name is in the Skills list, use it.
+   * If not, check cell A1 (data[0][0]); if A1 is in the Skills list, use that value so validation passes.
+   * Otherwise use the sheet name (validation will fail).
+   */
+  private resolveAssetSkillFromSheet(sheetName: string, data: string[][]): string {
+    const sheetVal = (sheetName ?? '').trim();
+    const a1Raw = (data[0]?.[0] ?? '').trim();
+    const normalized = this.skillsList.map(s => (s ?? '').trim().toLowerCase());
+    const sheetInList = normalized.includes(sheetVal.toLowerCase());
+    if (sheetInList) return sheetVal;
+    const a1InList = a1Raw && normalized.includes(a1Raw.toLowerCase());
+    if (a1InList) {
+      const match = this.skillsList.find(s => (s ?? '').trim().toLowerCase() === a1Raw.toLowerCase());
+      return match ?? a1Raw;
+    }
+    return sheetVal;
+  }
+
+  /** Validate each asset row's Skill value (single-sheet: from Skill column; multi-sheet: sheet name) against the Maintenance Skills list; fail validation for that cell when not found. */
+  private revalidateAssetSheetSkillAgainstSkillsList(): void {
+    const result = this.currentPageState.result;
+    const assetSheet = result?.assetSheet;
+    if (!assetSheet?.rows?.length) return;
+    const normalizedSkills = this.skillsList.map(s => (s ?? '').trim().toLowerCase());
+    for (const row of assetSheet.rows) {
+      const skillVal = (row.sourceSheetName ?? '').trim();
+      if (!skillVal) {
+        row.skillValidationError = undefined;
+        continue;
+      }
+      const skillNorm = skillVal.toLowerCase();
+      const inList = normalizedSkills.some(s => s === skillNorm);
+      if (!inList) {
+        row.skillValidationError = 'Skill not found in Maintenance Skills list';
+        row.isValid = false;
+      } else {
+        row.skillValidationError = undefined;
+      }
+    }
+    assetSheet.valid = assetSheet.rows.every(r => r.isValid);
   }
 
   /** Tooltip for a cell: only when this specific cell has an error (missing, spaces) or row-level error in the responsible cell. For field 'nameReversed', pass sheet so we can check confirmation. */

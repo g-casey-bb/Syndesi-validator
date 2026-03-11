@@ -78,6 +78,8 @@ export interface ValidationRow {
   comment?: string;
   spaceErrors?: { employeeId?: SpaceErrorType; firstName?: SpaceErrorType; lastName?: SpaceErrorType };
   onlySpaceErrors?: boolean;
+  /** When merged from multiple sheets: name of the sheet this row was imported from (hidden column "Skill"). */
+  sourceSheetName?: string;
 }
 
 export interface EmployeeSheetResult {
@@ -123,6 +125,8 @@ export interface TrainingRow {
   resultDefaulted?: boolean;
   /** True when this row has the same Skill + Test Date + Employee ID as another row. */
   duplicateTraining?: boolean;
+  /** When merged from multiple sheets: name of the sheet this row was imported from (hidden column "Skill"). */
+  sourceSheetName?: string;
 }
 
 export interface TrainingSheetResult {
@@ -133,11 +137,42 @@ export interface TrainingSheetResult {
   skillOptions?: string[];
 }
 
+/** Single row in the Assets data tab. Make, Model and Asset ID are mandatory; Attachment is optional but advised (flagged if empty). */
+export interface AssetRow {
+  rowIndex: number;
+  make: string;
+  model: string;
+  assetId: string;
+  abaCode: string;
+  attachment: string;
+  control: string;
+  energySource: string;
+  loadCentre: string;
+  ratedCapacity: string;
+  isValid: boolean;
+  /** True when Attachment is empty – not invalid but should be flagged to the user. */
+  attachmentEmpty?: boolean;
+  /** True when user has dismissed the "may need attention" (e.g. attachment empty) warning for this row. */
+  attachmentWarningDismissed?: boolean;
+  /** When merged from multiple sheets: name of the sheet this row was imported from; when single-sheet with Skill column: value from that column (hidden column "Skill"). */
+  sourceSheetName?: string;
+  /** Set when Skill value (from single-sheet column) is not in the Maintenance Skills list. */
+  skillValidationError?: string;
+}
+
+export interface AssetSheetResult {
+  name: string;
+  rowCount: number;
+  valid: boolean;
+  rows: AssetRow[];
+}
+
 export interface ValidationResult {
   fileName: string;
   sheetsProcessed: number;
   employeeSheets: EmployeeSheetResult[];
   trainingSheet?: TrainingSheetResult | null;
+  assetSheet?: AssetSheetResult | null;
   errors: string[];
   warnings: string[];
   summary: ValidationSummary;

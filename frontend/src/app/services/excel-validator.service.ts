@@ -3,8 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ValidationResult } from '../models/validation-result';
 
-/** API base: use backend origin so requests always hit the API (avoids proxy returning HTML). */
-const API_URL = 'http://localhost:3000/api';
+/** API base: relative so dev server proxy (proxy.conf.json → localhost:3000) is used. Run Syndesi backend on port 3000. */
+const API_URL = '/api';
 
 @Injectable({ providedIn: 'root' })
 export class ExcelValidatorService {

@@ -9,13 +9,12 @@
         <nav class="header-nav-tabs" aria-label="Main sections">
           @for (tab of topLevelTabs; track tab.id) {
             <a
-              [routerLink]="getPathForPage(tab.id)"
-              routerLinkActive="active"
-              [routerLinkActiveOptions]="{ exact: true }"
+              [href]="getPathForPage(tab.id)"
               class="header-tab-btn"
-              (click)="closeMaintenance()"
+              [class.active]="topLevelTab === tab.id"
+              (click)="selectPage(tab.id); $event.preventDefault()"
             >
-              {{ tab.label }}
+              {{ getTopLevelTabLabel(tab) }}
             </a>
           }
         </nav>
@@ -36,7 +35,6 @@
     <div class="container">
       <header class="page-header">
         <h1>{{ topLevelTab }}</h1>
-        <p class="subtitle">Upload an Excel file of {{ topLevelTab }} to import and verify.</p>
       </header>
 
       @if (currentPageState.error) {
@@ -48,91 +46,15 @@
           @for (tab of employeesSubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="currentPageState.employeesSubTab === tab.id" (click)="setEmployeesSubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
-                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
               }
             </button>
           }
         </div>
-        @if (currentPageState.employeesSubTab === 'Import') {
-          <section class="upload-section">
-            @if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
-            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
-              @if (!currentPageState.excelPreviewHtml) {
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-employees">Select which sheet to import</label>
-                  <select id="sheet-select-employees" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-                <p class="preview-loading">Loading preview…</p>
-              } @else {
-                @if (columnMappingByColumn.length) {
-                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
-                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
-                      @for (cell of previewMappingCells; track $index) {
-                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
-                      }
-                    </div>
-                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
-                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
-                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
-                        @for (cell of previewMappingCells; track $index) {
-                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
-                        }
-                      </div>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="preview-wrap">
-                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-                  </div>
-                }
-                <div class="actions">
-                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
-                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                  </button>
-                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-                </div>
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-employees">Change to another sheet</label>
-                  <select id="sheet-select-employees" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-              }
-            } @else if (currentPageState.excelPreviewHtml) {
-              <div class="preview-wrap">
-                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-              </div>
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            } @else {
-              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
-                <input id="file-input" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-              </div>
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            }
-          </section>
-        }
-        @if (currentPageState.employeesSubTab === 'Employee Data') {
+      }
+
+      @if (topLevelTab === 'Employees' && currentPageState.employeesSubTab === 'Employee Data') {
           @if (currentPageState.result && getEmployeeSheet(); as sheet) {
             <section class="results">
               @if (currentPageState.result.warnings?.length) {
@@ -304,6 +226,7 @@
           @if (currentPageState.nameCheckError) {
             <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
+          <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Employees')" [disabled]="isSubmitDisabled()">Submit</button>
         </div>
               } @else {
                 <p class="currentPageState.results-table-empty">No employee data in this sheet.</p>
@@ -315,98 +238,21 @@
             </section>
           }
         }
-      }
 
       @if (topLevelTab === 'Agency Workers') {
         <div class="tabs tabs-sub">
           @for (tab of agencySubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="currentPageState.agencySubTab === tab.id" (click)="setAgencySubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
-                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
               }
             </button>
           }
         </div>
-        @if (currentPageState.agencySubTab === 'Import') {
-          <section class="upload-section">
-            @if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
-            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
-              @if (!currentPageState.excelPreviewHtml) {
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-agency">Select which sheet to import</label>
-                  <select id="sheet-select-agency" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-                <p class="preview-loading">Loading preview…</p>
-              } @else {
-                @if (columnMappingByColumn.length) {
-                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
-                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
-                      @for (cell of previewMappingCells; track $index) {
-                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
-                      }
-                    </div>
-                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
-                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
-                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
-                        @for (cell of previewMappingCells; track $index) {
-                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
-                        }
-                      </div>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="preview-wrap">
-                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-                  </div>
-                }
-                <div class="actions">
-                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
-                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                  </button>
-                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-                </div>
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-agency">Change to another sheet</label>
-                  <select id="sheet-select-agency" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-              }
-            } @else if (currentPageState.excelPreviewHtml) {
-              <div class="preview-wrap">
-                <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-              </div>
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields (Employee ID, First Name, Last Name) to import' }}">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            } @else {
-              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
-                <input id="file-input-agency" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-              </div>
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            }
-          </section>
-        }
-        @if (currentPageState.agencySubTab === 'Agency Worker Data') {
+      }
+
+      @if (topLevelTab === 'Agency Workers' && currentPageState.agencySubTab === 'Agency Worker Data') {
           @if (currentPageState.result && getAgencySheet(); as sheet) {
             <section class="results">
               @if (currentPageState.result.warnings?.length) {
@@ -535,6 +381,7 @@
           @if (currentPageState.nameCheckError) {
             <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
           }
+          <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Agency Workers')" [disabled]="isSubmitDisabled()">Submit</button>
         </div>
               } @else {
                 <p class="currentPageState.results-table-empty">No agency worker data in this sheet.</p>
@@ -546,116 +393,249 @@
             </section>
           }
         }
+
+      @if (topLevelTab === 'Users') {
+        <div class="tabs tabs-sub">
+          @for (tab of usersSubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="currentPageState.usersSubTab === tab.id" (click)="setUsersSubTab(tab.id)">
+              {{ tab.label }}
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
+              }
+            </button>
+          }
+        </div>
       }
+
+      @if (topLevelTab === 'Users' && currentPageState.usersSubTab === 'User Data') {
+        @if (currentPageState.result && getUsersSheet(); as sheet) {
+            <section class="results">
+              @if (currentPageState.result.warnings?.length) {
+                <div class="message message-warn">
+                  @for (w of currentPageState.result.warnings; track w) { <p>{{ w }}</p> }
+                </div>
+              }
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getUsersAttentionCount() > 0" [class.badge-attention-zero]="getUsersAttentionCount() === 0">
+                  Users who need attention: {{ getUsersAttentionCount() }}
+                </span>
+                @if (getUsersAttentionCount() > 0 || currentPageState.usersTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleUsersTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleUsersTabShowFilter()" (keydown.space)="toggleUsersTabShowFilter(); $event.preventDefault()">{{ currentPageState.usersTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              @if (sheet.rows?.length) {
+                <div class="sheet-card" [class.invalid]="!sheet.valid">
+                  <div class="currentPageState.results-table-block">
+                    <div class="currentPageState.results-table-wrap">
+                      <table class="currentPageState.results-table cols-7">
+                        <thead>
+                          <tr>
+                            <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0">{{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'firstName')" role="button" tabindex="0">First Name
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'lastName')" role="button" tabindex="0">Last Name
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'email')" role="button" tabindex="0">Email
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'dob')" role="button" tabindex="0">DOB
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'site')" role="button" tabindex="0">Site
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0">Shift
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="col-actions"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of getFilteredEmployeeRows(sheet, currentPageState.usersTabShowOnlyInvalid, currentPageState.usersTabFilterInvalidRowIndices); track row.rowIndex) {
+                            <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'employeeId')">
+                                <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
+                              </td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'firstName')"><input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'lastName')"><input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'email')"><input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.dob ?? ''" (input)="row.dob = $any($event.target).value" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.site ?? ''" (input)="row.site = $any($event.target).value" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" /></td>
+                              <td class="col-actions">
+                                @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
+                                  <button type="button" class="cell-delete-btn" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
+                                    <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/></svg>
+                                  </button>
+                                }
+                                @if (showRowConfirmButton(row, sheet, getIdLabel(sheet))) {
+                                  <button type="button" class="cell-confirm-btn" (click)="confirmRow(sheet, row)" aria-label="Confirm as valid">
+                                    <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                  </button>
+                                }
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="employee-data-actions">
+                  <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">{{ nameCheckLoading ? 'Checking names…' : 'Check names' }}</button>
+                  <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
+                  @if (currentPageState.nameCheckError) {
+                    <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
+                  }
+                  <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Users')" [disabled]="isSubmitDisabled()">Submit</button>
+                </div>
+              } @else {
+                <p class="currentPageState.results-table-empty">No user data in this sheet.</p>
+              }
+            </section>
+          } @else {
+            <section class="currentPageState.results currentPageState.results-placeholder">
+              <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see user data.</p>
+            </section>
+          }
+        }
+
+      @if (topLevelTab === 'Instructors') {
+        <div class="tabs tabs-sub">
+          @for (tab of instructorsSubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="currentPageState.instructorsSubTab === tab.id" (click)="setInstructorsSubTab(tab.id)">
+              {{ tab.label }}
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
+              }
+            </button>
+          }
+        </div>
+      }
+
+      @if (topLevelTab === 'Instructors' && currentPageState.instructorsSubTab === 'Instructor Data') {
+          @if (currentPageState.result && getInstructorsSheet(); as sheet) {
+            <section class="results">
+              @if (currentPageState.result.warnings?.length) {
+                <div class="message message-warn">
+                  @for (w of currentPageState.result.warnings; track w) { <p>{{ w }}</p> }
+                </div>
+              }
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getInstructorsAttentionCount() > 0" [class.badge-attention-zero]="getInstructorsAttentionCount() === 0">
+                  Instructors who need attention: {{ getInstructorsAttentionCount() }}
+                </span>
+                @if (getInstructorsAttentionCount() > 0 || currentPageState.instructorsTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleInstructorsTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleInstructorsTabShowFilter()" (keydown.space)="toggleInstructorsTabShowFilter(); $event.preventDefault()">{{ currentPageState.instructorsTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              @if (sheet.rows?.length) {
+                <div class="sheet-card" [class.invalid]="!sheet.valid">
+                  <div class="currentPageState.results-table-block">
+                    <div class="currentPageState.results-table-wrap">
+                      <table class="currentPageState.results-table cols-7">
+                        <thead>
+                          <tr>
+                            <th class="sortable" (click)="setSort(sheet, 'employeeId')" role="button" tabindex="0">{{ sheet.employeeIdentifierColumnLabel === 'Employee Number' ? 'Employee Number' : 'Employee ID' }}
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'employeeId') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'firstName')" role="button" tabindex="0">First Name
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'firstName') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'lastName')" role="button" tabindex="0">Last Name
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'lastName') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'email')" role="button" tabindex="0">Email
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'email') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'dob')" role="button" tabindex="0">DOB
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'dob') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'site')" role="button" tabindex="0">Site
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'site') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setSort(sheet, 'shift')" role="button" tabindex="0">Shift
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getSortIcon(sheet, 'shift') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="col-actions"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of getFilteredEmployeeRows(sheet, currentPageState.instructorsTabShowOnlyInvalid, currentPageState.instructorsTabFilterInvalidRowIndices); track row.rowIndex) {
+                            <tr [class.valid-row]="row.isValid || allRowErrorsConfirmed(row, sheet, getIdLabel(sheet))" [class.invalid-row]="hasUnconfirmedRowErrors(row, sheet, getIdLabel(sheet))">
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'employeeId')">
+                                <input class="cell-input" type="text" [value]="row.employeeId" (input)="row.employeeId = $any($event.target).value; onCellEdit(sheet, row)" />
+                              </td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'firstName')"><input class="cell-input" type="text" [value]="row.firstName" (input)="row.firstName = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'lastName')"><input class="cell-input" type="text" [value]="row.lastName" (input)="row.lastName = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td [class.cell-overlay-error]="hasValidationError(sheet, row, 'email')"><input class="cell-input" type="text" [value]="getEmailDisplay(row)" (input)="row.email = $any($event.target).value; onCellEdit(sheet, row)" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.dob ?? ''" (input)="row.dob = $any($event.target).value" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.site ?? ''" (input)="row.site = $any($event.target).value" /></td>
+                              <td><input class="cell-input" type="text" [value]="row.shift ?? ''" (input)="row.shift = $any($event.target).value" /></td>
+                              <td class="col-actions">
+                                @if (showRowDeleteButton(row, sheet, getIdLabel(sheet))) {
+                                  <button type="button" class="cell-delete-btn" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Delete duplicate">
+                                    <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/></svg>
+                                  </button>
+                                } @else if (showInstructorMissingIdDeleteButton(row, sheet)) {
+                                  <button type="button" class="cell-delete-btn" (click)="removeInstructorRow(sheet, row)" aria-label="Remove row">
+                                    <svg class="cell-cross-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"/></svg>
+                                  </button>
+                                }
+                                @if (showRowConfirmButton(row, sheet, getIdLabel(sheet))) {
+                                  <button type="button" class="cell-confirm-btn" (click)="confirmRow(sheet, row)" aria-label="Confirm as valid">
+                                    <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                  </button>
+                                } @else if (showInstructorMissingIdConfirmButton(row, sheet)) {
+                                  <button type="button" class="cell-confirm-btn" (click)="confirmCell(sheet, row, 'employeeId')" aria-label="Confirm as valid without Employee Number">
+                                    <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                  </button>
+                                }
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="employee-data-actions">
+                  <button type="button" class="btn btn-secondary" (click)="checkNames(sheet)" [disabled]="nameCheckLoading || !sheet.rows?.length" title="Use ChatGPT to check if first and last names may be reversed">{{ nameCheckLoading ? 'Checking names…' : 'Check names' }}</button>
+                  <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
+                  @if (currentPageState.nameCheckError) {
+                    <span class="name-check-error">{{ currentPageState.nameCheckError }}</span>
+                  }
+                  <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Instructors')" [disabled]="isSubmitDisabled()">Submit</button>
+                </div>
+              } @else {
+                <p class="currentPageState.results-table-empty">No instructor data in this sheet.</p>
+              }
+            </section>
+          } @else {
+            <section class="currentPageState.results currentPageState.results-placeholder">
+              <p class="currentPageState.results-table-empty">Upload and validate an Excel file on the Import tab to see instructor data.</p>
+            </section>
+          }
+        }
 
       @if (topLevelTab === 'Training') {
         <div class="tabs tabs-sub">
           @for (tab of trainingSubTabs; track tab.id) {
             <button type="button" class="tab-btn" [class.active]="currentPageState.trainingSubTab === tab.id" (click)="setTrainingSubTab(tab.id)">
               {{ tab.label }}
-              @if (tab.id === 'Import' && (currentPageState.excelPreviewHtml || currentPageState.importedFileLabel)) {
-                <span class="tab-close" (click)="clearPreview(); $event.stopPropagation()" role="button" title="Close preview and revert to Import" aria-label="Close preview and revert to Import">×</span>
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
               }
             </button>
           }
         </div>
-        @if (currentPageState.trainingSubTab === 'Import') {
-          <section class="upload-section">
-            @if (currentPageState.previewLoading) {
-              <p class="preview-loading">Loading preview…</p>
-            } @else if (currentPageState.selectedFile && currentPageState.excelSheetNames.length > 0) {
-              @if (!currentPageState.excelPreviewHtml) {
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-training">Select which sheet to import</label>
-                  <select id="sheet-select-training" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-                <p class="preview-loading">Loading preview…</p>
-              } @else {
-                @if (columnMappingByColumn.length) {
-                  <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
-                    <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
-                      @for (cell of previewMappingCells; track $index) {
-                        <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
-                      }
-                    </div>
-                    <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
-                      <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
-                      <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
-                        @for (cell of previewMappingCells; track $index) {
-                          <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
-                        }
-                      </div>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="preview-wrap">
-                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-                  </div>
-                }
-                <div class="actions">
-                  <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields to import' }}">
-                    {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                  </button>
-                  <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-                </div>
-                <div class="sheet-select-row">
-                  <label class="sheet-select-label" for="sheet-select-training">Change to another sheet</label>
-                  <select id="sheet-select-training" class="sheet-select-dropdown" [value]="currentPageState.selectedSheetName ?? ''" (change)="onSheetChange($any($event.target).value)">
-                    <option value="">Select a sheet…</option>
-                    @for (name of currentPageState.excelSheetNames; track name) {
-                      <option [value]="name">{{ name }}</option>
-                    }
-                  </select>
-                </div>
-              }
-            } @else if (currentPageState.excelPreviewHtml) {
-              @if (columnMappingByColumn.length) {
-                <div class="preview-mapping-table-wrap" [style.minWidth.px]="previewTableTotalWidth || null">
-                  <div class="preview-mapping-row" [style.gridTemplateColumns]="previewMappingGridColumns">
-                    @for (cell of previewMappingCells; track $index) {
-                      <div class="preview-mapping-cell" [class.mapped]="cell.mapped">{{ cell.label }}</div>
-                    }
-                  </div>
-                  <div class="preview-wrap preview-with-overlay" [style.minWidth.px]="previewTableTotalWidth || null">
-                    <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview" (load)="onPreviewIframeLoad($event)"></iframe>
-                    <div class="preview-column-overlay" [style.gridTemplateColumns]="previewMappingGridColumns" aria-hidden="true">
-                      @for (cell of previewMappingCells; track $index) {
-                        <div class="preview-column-overlay-cell" [class.mapped]="cell.mapped"></div>
-                      }
-                    </div>
-                  </div>
-                </div>
-              } @else {
-                <div class="preview-wrap">
-                  <iframe class="excel-preview-iframe" [srcdoc]="sanitizedExcelPreview" title="Excel preview"></iframe>
-                </div>
-              }
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="currentPageState.loading || !hasRequiredColumnMapping" title="{{ hasRequiredColumnMapping ? '' : 'Complete Assign Fields to import' }}">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            } @else {
-              <div class="upload-area" [class.has-file]="currentPageState.selectedFile">
-                <input id="file-input-training" type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" />
-                <p class="upload-label">{{ currentPageState.selectedFile ? currentPageState.selectedFile.name : 'Choose an Excel file (.xlsx or .xls)' }}</p>
-              </div>
-              <div class="actions">
-                <button class="btn btn-primary" (click)="validate()" [disabled]="!currentPageState.excelPreviewHtml || currentPageState.loading">
-                  {{ currentPageState.loading ? 'Importing…' : 'Import' }}
-                </button>
-                <button class="btn btn-secondary" (click)="clearPreview()" [disabled]="currentPageState.loading">Clear</button>
-              </div>
-            }
-          </section>
-        }
-        @if (currentPageState.trainingSubTab === 'Training Data') {
+      }
+
+      @if (topLevelTab === 'Training' && currentPageState.trainingSubTab === 'Training Data') {
         <section class="currentPageState.results" [class.currentPageState.results-placeholder]="!getTrainingSheet()?.rows?.length">
           <h2>Training</h2>
           @if (getTrainingSheet(); as training) {
@@ -693,6 +673,7 @@
                           Employee ID
                           <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getTrainingSortIcon('employeeId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getTrainingSortIcon('employeeId') === 'desc'">↓</span></span>
                         </th>
+                        <th class="col-skill-hidden" aria-hidden="true">Skill</th>
                         <th class="col-actions"></th>
                       </tr>
                     </thead>
@@ -766,6 +747,7 @@
                               }
                             </div>
                           </td>
+                          <td class="col-skill-hidden" aria-hidden="true">{{ row.sourceSheetName ?? '' }}</td>
                           <td class="col-actions">
                             @if (row.skill && isTrainingSkillUnrecognised(row.skill)) {
                               <button type="button" class="cell-add-skill-btn" title="Add new skill" (click)="openUnknownSkillDialog(row.skill)" aria-label="Add new skill">
@@ -798,18 +780,191 @@
           @if (currentPageState.trainingSubTab === 'Training Data') {
             <div class="employee-data-actions">
               <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
+              <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Training')" [disabled]="isSubmitDisabled()">Submit</button>
             </div>
           }
         </section>
         }
-      }
 
       @if (topLevelTab === 'Assets') {
-        <section class="currentPageState.results currentPageState.results-placeholder">
-          <h2>Assets</h2>
-          <p class="currentPageState.results-table-empty">Assets content will appear here.</p>
-        </section>
+        <div class="tabs tabs-sub">
+          @for (tab of assetsSubTabs; track tab.id) {
+            <button type="button" class="tab-btn" [class.active]="currentPageState.assetsSubTab === tab.id" (click)="setAssetsSubTab(tab.id)">
+              {{ tab.label }}
+              @if (tab.id === 'Import' && workspaceUploadedFileName) {
+                <span class="tab-label-close" (click)="closeWorkspaceFile($event)" aria-label="Close file">×</span>
+              }
+            </button>
+          }
+        </div>
       }
+
+      <!-- No @if wrapper: section is always in DOM so the iframe is never destroyed when changing page; visibility controlled by class only. Placed after all tab blocks so Import/Data tabs appear above the iframe on every page. -->
+      <section class="upload-section" [class.upload-section-hidden]="!isImportSubTabActive()">
+        @if (workspaceImportError) {
+          <div class="message message-error">{{ workspaceImportError }}</div>
+        }
+        <div class="preview-wrap">
+          <iframe #workspaceIframe class="excel-preview-iframe excel-import-iframe" [src]="workspaceIframeSrc" title="Google Sheets Workspace uploader"></iframe>
+        </div>
+        <div class="workspace-import-actions">
+          <button type="button" class="btn btn-primary" (click)="importFromWorkspace(workspaceIframe)" [disabled]="workspaceImportLoading || !workspaceSheetDisplayed">
+            {{ workspaceImportLoading ? 'Importing…' : 'Import current sheet' }}
+          </button>
+          @if (topLevelTab === 'Assets') {
+            <button type="button" class="btn btn-secondary" (click)="openImportSheetsDialog(workspaceIframe)" [disabled]="workspaceImportLoading || !workspaceSheetDisplayed">
+              Import Multiple Sheets
+            </button>
+          }
+        </div>
+      </section>
+
+      @if (topLevelTab === 'Assets' && currentPageState.assetsSubTab === 'Asset Data') {
+          @if (currentPageState.result && getAssetSheet(); as sheet) {
+            <section class="results">
+              @if (currentPageState.result.warnings?.length) {
+                <div class="message message-warn">
+                  @for (w of currentPageState.result.warnings; track w) { <p>{{ w }}</p> }
+                </div>
+              }
+              <div class="summary">
+                <span class="badge" [class.badge-attention]="getAssetsAttentionCount() > 0" [class.badge-attention-zero]="getAssetsAttentionCount() === 0">
+                  Assets that need attention: {{ getAssetsAttentionCount() }}
+                </span>
+                <span class="badge" [class.badge-may-need-attention]="getAssetsMayNeedAttentionCount() > 0" [class.badge-attention-zero]="getAssetsMayNeedAttentionCount() === 0">
+                  Assets that may need attention: {{ getAssetsMayNeedAttentionCount() }}
+                </span>
+                @if (getAssetsAttentionCount() > 0 || currentPageState.assetsTabShowOnlyInvalid) {
+                  <a class="summary-show-link" (click)="toggleAssetsTabShowFilter()" role="button" tabindex="0" (keydown.enter)="toggleAssetsTabShowFilter()" (keydown.space)="toggleAssetsTabShowFilter(); $event.preventDefault()">{{ currentPageState.assetsTabShowOnlyInvalid ? 'Show all' : 'Show' }}</a>
+                }
+              </div>
+              @if (sheet.rows?.length) {
+                <div class="asset-data-layout">
+                  <aside class="asset-data-filter-panel" aria-label="Filter by skill">
+                    <button type="button" class="asset-data-filter-toggle" (click)="toggleAssetsFilterPanelCollapsed()" [attr.aria-expanded]="!currentPageState.assetsFilterPanelCollapsed">
+                      <span class="asset-data-filter-title">Filter by Skill</span>
+                      <span class="asset-data-filter-toggle-icon">{{ currentPageState.assetsFilterPanelCollapsed ? '▶' : '▼' }}</span>
+                    </button>
+                    <div class="asset-data-filter-options">
+                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'All'" (click)="setAssetsSkillFilter('All')">All ({{ getAssetSkillCounts(sheet).all }})</button>
+                      <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === 'Unassigned'" (click)="setAssetsSkillFilter('Unassigned')">Unassigned ({{ getAssetSkillCounts(sheet).unassigned }})</button>
+                      @if (currentPageState.assetsFilterPanelCollapsed) {
+                        @for (skill of getSkillsWithPopulatedRows(sheet); track skill) {
+                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
+                        }
+                      } @else {
+                        @for (skill of skillsList; track skill) {
+                          <button type="button" class="asset-data-filter-option" [class.active]="currentPageState.assetsSkillFilter === skill" (click)="setAssetsSkillFilter(skill)">{{ skill }} ({{ getAssetSkillCounts(sheet).bySkill[skill] ?? 0 }})</button>
+                        }
+                      }
+                    </div>
+                  </aside>
+                  <div class="asset-data-main">
+                <div class="sheet-card" [class.invalid]="!sheet.valid">
+                  <div class="results-table-block">
+                    <div class="results-table-wrap">
+                      <table class="results-table results-table-assets cols-9">
+                        <thead>
+                          <tr>
+                            <th class="sortable" (click)="setAssetSort('make')" role="button" tabindex="0">Make
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('make') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('make') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('model')" role="button" tabindex="0">Model
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('model') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('model') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('assetId')" role="button" tabindex="0">Asset ID
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('assetId') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('assetId') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('abaCode')" role="button" tabindex="0">ABA Code
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('abaCode') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('abaCode') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('attachment')" role="button" tabindex="0">Attachment
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('attachment') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('attachment') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('control')" role="button" tabindex="0">Control
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('control') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('control') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('energySource')" role="button" tabindex="0">Energy Source
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('energySource') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('energySource') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('loadCentre')" role="button" tabindex="0">Load Centre
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('loadCentre') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('loadCentre') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="sortable" (click)="setAssetSort('ratedCapacity')" role="button" tabindex="0">Rated Capacity
+                              <span class="sort-icons" aria-label="Sortable"><span class="sort-arrow" [class.active]="getAssetSortIcon('ratedCapacity') === 'asc'">↑</span><span class="sort-arrow-sep">/</span><span class="sort-arrow" [class.active]="getAssetSortIcon('ratedCapacity') === 'desc'">↓</span></span>
+                            </th>
+                            <th class="col-skill-hidden col-skill-visible" aria-hidden="false">Skill</th>
+                            <th class="col-actions"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of getFilteredAssetRows(sheet); track row.rowIndex) {
+                            <tr [class.valid-row]="row.isValid" [class.invalid-row]="!row.isValid">
+                              <td [class.cell-overlay-error]="!row.isValid && !(row.make ?? '').trim()">
+                                <input class="cell-input" type="text" [value]="row.make" (input)="row.make = $any($event.target).value; onAssetCellEdit(row)" />
+                              </td>
+                              <td [class.cell-overlay-error]="!row.isValid && !(row.model ?? '').trim()">
+                                <input class="cell-input" type="text" [value]="row.model" (input)="row.model = $any($event.target).value; onAssetCellEdit(row)" />
+                              </td>
+                              <td [class.cell-overlay-error]="!row.isValid && !(row.assetId ?? '').trim()">
+                                <input class="cell-input" type="text" [value]="row.assetId" (input)="row.assetId = $any($event.target).value; onAssetCellEdit(row)" />
+                              </td>
+                              <td>
+                                <input class="cell-input" type="text" [value]="row.abaCode" (input)="row.abaCode = $any($event.target).value" />
+                              </td>
+                              <td [class.cell-overlay-warn]="hasAssetRowMayNeedAttention(row)">
+                                <div class="cell-with-icon">
+                                  <input class="cell-input" type="text" [value]="row.attachment" (input)="row.attachment = $any($event.target).value; onAssetCellEdit(row)" />
+                                  @if (hasAssetRowMayNeedAttention(row)) {
+                                    <span class="cell-invalid-icon" title="Attachment is optional but highly advised" role="img" aria-label="Advisory">⚠</span>
+                                  }
+                                </div>
+                              </td>
+                              <td>
+                                <input class="cell-input" type="text" [value]="row.control" (input)="row.control = $any($event.target).value" />
+                              </td>
+                              <td>
+                                <input class="cell-input" type="text" [value]="row.energySource" (input)="row.energySource = $any($event.target).value" />
+                              </td>
+                              <td>
+                                <input class="cell-input" type="text" [value]="row.loadCentre" (input)="row.loadCentre = $any($event.target).value" />
+                              </td>
+                              <td>
+                                <input class="cell-input" type="text" [value]="row.ratedCapacity" (input)="row.ratedCapacity = $any($event.target).value" />
+                              </td>
+                              <td class="col-skill-hidden col-skill-visible" aria-hidden="false" [class.cell-overlay-error]="hasAssetSkillValidationError(row)" [attr.title]="row.skillValidationError ?? null">{{ row.sourceSheetName ?? '' }}</td>
+                              <td class="col-actions">
+                                @if (hasAssetRowMayNeedAttention(row)) {
+                                  <button type="button" class="cell-confirm-btn" title="Dismiss warning" (click)="dismissAssetRowWarning(row)" aria-label="Dismiss warning">
+                                    <svg class="cell-tick-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                  </button>
+                                }
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="employee-data-actions">
+                  <button type="button" class="btn btn-secondary" (click)="clearCurrentTabData()">Clear</button>
+                  <button type="button" class="btn btn-primary employee-data-actions-submit" (click)="openSubmitDialog('Assets')" [disabled]="isSubmitDisabled()">Submit</button>
+                </div>
+                  </div>
+                </div>
+              } @else {
+                <p class="results-table-empty">No asset data in this sheet.</p>
+              }
+            </section>
+          } @else {
+            <section class="results results-placeholder">
+              <p class="results-table-empty">Upload and validate an Excel file on the Import tab to see asset data.</p>
+            </section>
+          }
+        }
     </div>
   </main>
 
@@ -830,8 +985,31 @@
 
       <div class="maintenance-tabs">
         <button type="button" class="maintenance-tab" [class.active]="maintenanceTab === 'Skills'" (click)="maintenanceTab = 'Skills'">Skills</button>
+        <button type="button" class="maintenance-tab" [class.active]="maintenanceTab === 'Company Setup'" (click)="maintenanceTab = 'Company Setup'">Company Setup</button>
         <button type="button" class="maintenance-tab" [class.active]="maintenanceTab === 'Testing'" (click)="maintenanceTab = 'Testing'">Testing</button>
       </div>
+
+      @if (maintenanceTab === 'Company Setup') {
+      <section class="maintenance-section">
+        <h2>Company Setup</h2>
+        <p class="maintenance-description">Manage companies. Click a company to edit, or add a new one.</p>
+        <ul class="maintenance-company-list">
+          @for (company of companies; track company.id) {
+            <li>
+              <button type="button" class="maintenance-company-item" (click)="openCompanyDialog(company)">
+                {{ company.name || '(Unnamed company)' }}
+              </button>
+            </li>
+          }
+        </ul>
+        @if (companies.length === 0) {
+          <p class="maintenance-empty">No companies yet. Click Add to create one.</p>
+        }
+        <div class="maintenance-actions" style="margin-top: 0.75rem;">
+          <button type="button" class="btn btn-primary" (click)="addCompany()">Add</button>
+        </div>
+      </section>
+      }
 
       @if (maintenanceTab === 'Testing') {
       <section class="maintenance-section">
@@ -1001,6 +1179,106 @@
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" (click)="closeSettings()">Cancel</button>
           <button type="button" class="btn btn-primary" (click)="saveSettingsAndClose()">OK</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (companyDialogOpen) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="company-dialog-title">
+      <div class="dialog-backdrop" (click)="closeCompanyDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="company-dialog-title" class="dialog-title">{{ companyDialogEditingId !== null ? 'Edit company' : 'New company' }}</h2>
+        <div class="dialog-body">
+          <div class="dialog-form-row">
+            <label class="dialog-label" for="company-dialog-name">Company Name</label>
+            <input id="company-dialog-name" class="dialog-input" type="text" [value]="companyDialogForm.name" (input)="setCompanyDialogName($any($event.target).value)" placeholder="Company name" />
+          </div>
+          <div class="dialog-form-row dialog-form-row-checkbox">
+            <label class="dialog-label dialog-label-checkbox">
+              <input type="checkbox" [checked]="companyDialogForm.employeeId" (change)="setCompanyDialogEmployeeId($any($event.target).checked)" />
+              Employee ID
+            </label>
+          </div>
+          <div class="dialog-form-row dialog-form-row-checkbox">
+            <label class="dialog-label dialog-label-checkbox">
+              <input type="checkbox" [checked]="companyDialogForm.dob" (change)="setCompanyDialogDob($any($event.target).checked)" />
+              DOB
+            </label>
+          </div>
+          <div class="dialog-form-row dialog-form-row-checkbox">
+            <label class="dialog-label dialog-label-checkbox">
+              <input type="checkbox" [checked]="companyDialogForm.email" (change)="setCompanyDialogEmail($any($event.target).checked)" />
+              Email address
+            </label>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeCompanyDialog()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveCompanyDialog()" [disabled]="!companyDialogForm.name.trim()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (workspaceFormatWarningDialogOpen) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="workspace-format-warning-title">
+      <div class="dialog-backdrop" (click)="closeWorkspaceFormatWarningDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="workspace-format-warning-title" class="dialog-title">Sheet format</h2>
+        <div class="dialog-body">
+          <p class="dialog-message">This sheet does not appear to be formatted correctly. Continue?</p>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeWorkspaceFormatWarningDialog()">No</button>
+          <button type="button" class="btn btn-primary" (click)="confirmWorkspaceFormatWarningAndImport()">Yes</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (submitDialogPage !== null) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" [attr.aria-labelledby]="'submit-dialog-title'">
+      <div class="dialog-backdrop" (click)="closeSubmitDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="submit-dialog-title" class="dialog-title">{{ submitDialogPage }} data submitted</h2>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-primary" (click)="closeSubmitDialog()">OK</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (showImportSheetsDialog) {
+    <div class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="import-sheets-dialog-title">
+      <div class="dialog-backdrop" (click)="closeImportSheetsDialog()"></div>
+      <div class="dialog-modal" (click)="$event.stopPropagation()">
+        <h2 id="import-sheets-dialog-title" class="dialog-title">Select which sheets to import</h2>
+        <div class="dialog-body">
+          @if (importSheetsList.length === 0 && !importSheetsLoading) {
+            <p class="dialog-message">No sheets found. Upload a file in the viewer first.</p>
+          } @else if (importSheetsList.length === 0) {
+            <p class="dialog-message">Loading sheet names…</p>
+          } @else {
+            <p class="dialog-message">Choose the sheets to import. All will be merged into one data set.</p>
+            @if (importSheetsError) {
+              <div class="message message-error">{{ importSheetsError }}</div>
+            }
+            <div class="dialog-sheet-list">
+              @for (name of importSheetsList; track name) {
+                <label class="dialog-checkbox-row">
+                  <input type="checkbox" [checked]="importSheetsSelected[name]" (change)="toggleImportSheetSelected(name)" />
+                  <span>{{ name }}</span>
+                </label>
+              }
+            </div>
+          }
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeImportSheetsDialog()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="confirmImportSelectedSheets()" [disabled]="importSheetsList.length === 0 || selectedImportSheetsCount === 0">
+            Import {{ selectedImportSheetsCount > 0 ? selectedImportSheetsCount + ' sheet(s)' : 'sheets' }}
+          </button>
         </div>
       </div>
     </div>

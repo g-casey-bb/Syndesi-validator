@@ -1,6 +1,6 @@
 import { ValidationResult } from './validation-result';
 
-export type PageKey = 'Employees' | 'Agency Workers' | 'Training' | 'Assets';
+export type PageKey = 'Employees' | 'Agency Workers' | 'Users' | 'Instructors' | 'Training' | 'Assets';
 
 /** One Excel column option for the mapping dropdown (column has some data). */
 export interface ExcelColumnOption {
@@ -34,7 +34,11 @@ export const COLUMN_MAPPING_COLUMNS_TRAINING: { key: TrainingColumnMappingKey; l
 ];
 
 /** Import and display state for a single page (Employees, Agency Workers, or Training). */
+export type ImportPreviewMethod = 'built-in' | 'excel-import';
+
 export interface PageImportState {
+  /** How to display the Excel preview: built-in (srcdoc table) or Excel Import app (iframe). */
+  importPreviewMethod: ImportPreviewMethod;
   selectedFile: File | null;
   result: ValidationResult | null;
   excelPreviewHtml: string | null;
@@ -54,14 +58,27 @@ export interface PageImportState {
   loading: boolean;
   employeesSubTab: 'Import' | 'Employee Data';
   agencySubTab: 'Import' | 'Agency Worker Data';
+  usersSubTab: 'Import' | 'User Data';
+  instructorsSubTab: 'Import' | 'Instructor Data';
   trainingSubTab: 'Import' | 'Training Data';
+  assetsSubTab: 'Import' | 'Asset Data';
   activeTab: 'Employees' | 'Agency Employees' | 'Instructor';
   employeeTabShowOnlyInvalid: boolean;
   agencyTabShowOnlyInvalid: boolean;
+  usersTabShowOnlyInvalid: boolean;
+  instructorsTabShowOnlyInvalid: boolean;
   /** Row indices to show when "Show only invalid" is on (fixed at toggle time so edits don't remove rows). */
   employeeTabFilterInvalidRowIndices: number[] | null;
   agencyTabFilterInvalidRowIndices: number[] | null;
+  usersTabFilterInvalidRowIndices: number[] | null;
+  instructorsTabFilterInvalidRowIndices: number[] | null;
   trainingShowOnlyInvalid: boolean;
+  assetsTabShowOnlyInvalid: boolean;
+  assetsTabFilterInvalidRowIndices: number[] | null;
+  /** Asset Data filter by Skill: 'All' | 'Unassigned' | skill name from Maintenance Skills list. */
+  assetsSkillFilter: 'All' | 'Unassigned' | string;
+  /** When true, filter panel shows only All, Unassigned and skills that have at least one row. */
+  assetsFilterPanelCollapsed: boolean;
   rowsToReverse: Record<string, Set<number>>;
   confirmedCells: Record<string, Set<string>>;
   nameCheckReversedProbability: Record<string, Record<number, number>>;
@@ -70,6 +87,7 @@ export interface PageImportState {
 
 export function createDefaultPageImportState(): PageImportState {
   return {
+    importPreviewMethod: 'excel-import',
     selectedFile: null,
     result: null,
     excelPreviewHtml: null,
@@ -86,13 +104,24 @@ export function createDefaultPageImportState(): PageImportState {
     loading: false,
     employeesSubTab: 'Import',
     agencySubTab: 'Import',
+    usersSubTab: 'Import',
+    instructorsSubTab: 'Import',
     trainingSubTab: 'Import',
+    assetsSubTab: 'Import',
     activeTab: 'Employees',
     employeeTabShowOnlyInvalid: false,
     agencyTabShowOnlyInvalid: false,
+    usersTabShowOnlyInvalid: false,
+    instructorsTabShowOnlyInvalid: false,
     employeeTabFilterInvalidRowIndices: null,
     agencyTabFilterInvalidRowIndices: null,
+    usersTabFilterInvalidRowIndices: null,
+    instructorsTabFilterInvalidRowIndices: null,
     trainingShowOnlyInvalid: false,
+    assetsTabShowOnlyInvalid: false,
+    assetsTabFilterInvalidRowIndices: null,
+    assetsSkillFilter: 'All',
+    assetsFilterPanelCollapsed: true,
     rowsToReverse: {},
     confirmedCells: {},
     nameCheckReversedProbability: {},
@@ -104,12 +133,16 @@ export function createDefaultPageImportState(): PageImportState {
 export const PAGE_PATHS: Record<PageKey, string> = {
   'Employees': '/employees',
   'Agency Workers': '/agency-workers',
+  'Users': '/users',
+  'Instructors': '/instructors',
   'Training': '/training',
   'Assets': '/assets',
 };
 
 export function pathToPageKey(path: string): PageKey {
   if (path.startsWith('/agency-workers')) return 'Agency Workers';
+  if (path.startsWith('/users')) return 'Users';
+  if (path.startsWith('/instructors')) return 'Instructors';
   if (path.startsWith('/training')) return 'Training';
   if (path.startsWith('/assets')) return 'Assets';
   return 'Employees';

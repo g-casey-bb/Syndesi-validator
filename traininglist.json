@@ -1,8 +1,8 @@
 [
   "Counterbalance Lift Truck",
-  "Counterbalance Lift Truck",
   "Counterbalance with Bale Clamp",
   "Counterbalance with Clamp",
+  "Counterbalance with Double Clamp",
   "Counterbalance with Double Deep Forks",
   "Counterbalance with Double Fork Handler",
   "Counterbalance with Multi Fork Handler",
@@ -17,20 +17,19 @@
   "Order Picker Medium Level",
   "Pedestrian Counterbalance Truck High Level",
   "Pedestrian Pallet Truck Low Level",
-  "Pedestrian Pallet Truck Low Level",
   "Pedestrian Pallet Truck Low Level Battery Changer",
   "Pedestrian Stacker Truck Eye Level",
   "Pedestrian Stacker Truck Low Level",
   "Pedestrian Straddle Truck Eye Level",
   "Pivot Steer Lift Truck",
-  "Pivot Steer Lift Truck",
   "Reach Truck",
   "Reach with Pressurised Clamp",
   "Rider Pallet Truck Low Level",
   "Rider Pallet Truck Low Level Battery Changer",
+  "Rider Pallet Truck Low Level with Cage Handler",
   "Rider Stacker Truck Eye Level",
   "Rider Stacker Truck High Level",
   "Vehicle Mounted Lift Truck",
-  "Very Narrow Aisle Lift Truck (Operator Up)",
-  "Yardshunter"
+  "Verticle Stock Picker",
+  "Very Narrow Aisle Lift Truck (Operator Up)"
 ]

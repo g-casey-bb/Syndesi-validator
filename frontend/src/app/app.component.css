@@ -275,6 +275,73 @@
   display: none;
 }
 
+.maintenance-company-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.maintenance-company-list li {
+  margin-bottom: 0.35rem;
+}
+
+.maintenance-company-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  font-family: var(--syndesi-font);
+  color: var(--syndesi-text);
+  background: var(--syndesi-surface);
+  border: 1px solid var(--syndesi-border);
+  border-radius: var(--syndesi-radius);
+  cursor: pointer;
+}
+
+.maintenance-company-item:hover {
+  background: var(--syndesi-bg);
+  border-color: var(--syndesi-primary);
+}
+
+.dialog-form-row-checkbox {
+  margin-top: 0.5rem;
+}
+
+.dialog-label-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0;
+  cursor: pointer;
+}
+
+.dialog-label-checkbox input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.dialog-sheet-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+  padding-right: 0.25rem;
+}
+
+.dialog-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  cursor: pointer;
+}
+
+.dialog-checkbox-row input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+}
+
 /* Settings dialog */
 .dialog-overlay {
   position: fixed;
@@ -541,6 +608,55 @@
   margin-bottom: 1.5rem;
 }
 
+/* Hide without display:none so the iframe stays loaded and keeps its content when switching tabs/pages */
+.upload-section-hidden {
+  position: absolute !important;
+  left: -9999px !important;
+  top: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+.tab-btn {
+  position: relative;
+}
+
+.tab-label-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.35rem;
+  padding: 0 0.2rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.tab-label-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.workspace-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.workspace-import-hint {
+  font-size: 0.9rem;
+  color: var(--syndesi-text-muted, #666);
+}
+
 .sheet-select-row {
   margin-bottom: 1rem;
 }
@@ -635,6 +751,36 @@
   min-height: 320px;
   height: 50vh;
   border: none;
+}
+
+.excel-import-iframe {
+  min-height: 400px;
+  height: 60vh;
+}
+
+.import-method-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.import-method-label {
+  font-weight: 600;
+  color: var(--syndesi-text, #1a1a1a);
+}
+
+.import-method-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.import-method-option input {
+  cursor: pointer;
 }
 
 .preview-loading {
@@ -870,6 +1016,95 @@
   font-weight: 600;
 }
 
+.badge.badge-may-need-attention {
+  background: rgba(234, 179, 8, 0.2);
+  border-color: #ca8a04;
+  color: #a16207;
+  font-weight: 600;
+}
+
+/* Asset Data: filter panel + table layout */
+.asset-data-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  margin-top: 0.5rem;
+}
+
+.asset-data-filter-panel {
+  flex-shrink: 0;
+  width: 12rem;
+  padding: 0.75rem;
+  background: var(--syndesi-surface);
+  border: 1px solid var(--syndesi-border);
+  border-radius: var(--syndesi-radius);
+}
+
+.asset-data-filter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.25rem 0;
+  margin-bottom: 0.5rem;
+  font-family: var(--syndesi-font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--syndesi-text, #1a1a1a);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-data-filter-toggle:hover {
+  color: var(--syndesi-primary);
+}
+
+.asset-data-filter-toggle-icon {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.asset-data-filter-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--syndesi-text, #1a1a1a);
+}
+
+.asset-data-filter-options {
+  margin-top: 0.25rem;
+}
+
+.asset-data-filter-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+  font-family: var(--syndesi-font);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--syndesi-text, #1a1a1a);
+}
+
+.asset-data-filter-option:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.asset-data-filter-option.active {
+  background: var(--syndesi-primary);
+  color: #fff;
+}
+
+.asset-data-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .sheet-card {
   background: var(--syndesi-surface);
   border: 1px solid var(--syndesi-border);
@@ -1027,6 +1262,61 @@
   width: 4%;
 }
 
+/* Assets table: 9 data columns + 1 actions column */
+.results-table.cols-9 th:nth-child(1),
+.results-table.cols-9 td:nth-child(1) {
+  width: 10.5%;
+}
+.results-table.cols-9 th:nth-child(2),
+.results-table.cols-9 td:nth-child(2) {
+  width: 10.5%;
+}
+.results-table.cols-9 th:nth-child(3),
+.results-table.cols-9 td:nth-child(3) {
+  width: 9.5%;
+}
+.results-table.cols-9 th:nth-child(4),
+.results-table.cols-9 td:nth-child(4) {
+  width: 9.5%;
+}
+.results-table.cols-9 th:nth-child(5),
+.results-table.cols-9 td:nth-child(5) {
+  width: 11.5%;
+}
+.results-table.cols-9 th:nth-child(6),
+.results-table.cols-9 td:nth-child(6) {
+  width: 9.5%;
+}
+.results-table.cols-9 th:nth-child(7),
+.results-table.cols-9 td:nth-child(7) {
+  width: 11.5%;
+}
+.results-table.cols-9 th:nth-child(8),
+.results-table.cols-9 td:nth-child(8) {
+  width: 11.5%;
+}
+.results-table.cols-9 th:nth-child(9),
+.results-table.cols-9 td:nth-child(9) {
+  width: 11.5%;
+}
+.results-table.cols-9 th.col-skill-hidden,
+.results-table.cols-9 td.col-skill-hidden {
+  display: none;
+}
+
+/* Temporarily show Skill column in Asset Data table */
+.results-table-assets th.col-skill-hidden.col-skill-visible,
+.results-table-assets td.col-skill-hidden.col-skill-visible {
+  display: table-cell !important;
+  width: 10%;
+  min-width: 5rem;
+}
+
+.results-table.cols-9 th.col-actions,
+.results-table.cols-9 td.col-actions {
+  width: 4%;
+}
+
 .results-table .col-actions {
   text-align: right;
   white-space: nowrap;
@@ -1115,6 +1405,19 @@ td.cell-overlay-reversed::after {
   position: absolute;
   inset: 0;
   background: rgba(234, 179, 8, 0.25);
+  pointer-events: none;
+}
+
+/* Advisory: e.g. Attachment empty (optional but highly advised) */
+td.cell-overlay-warn {
+  position: relative;
+}
+
+td.cell-overlay-warn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(234, 179, 8, 0.15);
   pointer-events: none;
 }
 
@@ -1285,6 +1588,14 @@ td.cell-overlay-reversed::after {
 .results-table-training td:nth-child(6) {
   width: 6%;
 }
+.results-table-training th.col-skill-hidden,
+.results-table-training td.col-skill-hidden {
+  display: none;
+}
+.results-table-training th.col-actions,
+.results-table-training td.col-actions {
+  width: 4%;
+}
 
 .results-table-training td:has(.cell-invalid-icon) {
   background: rgba(220, 38, 38, 0.12);
@@ -1306,6 +1617,10 @@ td.cell-overlay-reversed::after {
   gap: 0.75rem;
   margin-top: 1rem;
   flex-wrap: wrap;
+}
+
+.employee-data-actions-submit {
+  margin-left: auto;
 }
 
 .name-check-error {
